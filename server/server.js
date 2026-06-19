@@ -16,7 +16,10 @@ fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const app = express();
 app.set("trust proxy", true); // чтобы req.ip отражал реальный адрес за реверс-прокси
-app.use(cors());
+// По умолчанию (разработка) CORS открыт; в проде задайте CORS_ORIGIN — список разрешённых
+// источников через запятую, например "https://snedka.app,https://www.snedka.app".
+const corsOrigin = process.env.CORS_ORIGIN;
+app.use(cors(corsOrigin ? { origin: corsOrigin.split(",").map((s) => s.trim()).filter(Boolean) } : {}));
 app.use(express.json());
 app.use("/uploads", express.static(UPLOAD_DIR, { maxAge: "7d" }));
 
@@ -42,7 +45,14 @@ const upload = multer({
     /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error("Можно загружать только изображения")),
 });
 
-const SECRET = process.env.JWT_SECRET || "change-me-in-production";
+const SECRET = process.env.JWT_SECRET || (() => {
+  if (process.env.NODE_ENV === "production") {
+    console.error("JWT_SECRET обязателен в production — запуск прерван.");
+    process.exit(1);
+  }
+  console.warn("⚠ JWT_SECRET не задан — используется небезопасный ключ (только для разработки).");
+  return "dev-insecure-secret";
+})();
 const sign = (user) => jwt.sign({ uid: user.id }, SECRET, { expiresIn: "30d" });
 
 function recordIp(userId, ip) {
@@ -82,7 +92,10 @@ function canModerate(actor, target) {
 
 function canManageRecipe(user, r) {
   if (r.is_base) return false;
-  return r.family_id === user.family_id || user.role === "admin" || user.role === "moderator";
+  if (r.family_id === user.family_id) return true; // своя семья
+  // Модерация распространяется только на публичный контент: приватные рецепты чужих
+  // семей недоступны staff (их не видно в ленте, и менять/удалять их по id нельзя).
+  return (user.role === "admin" || user.role === "moderator") && r.visibility === "public";
 }
 
 // ── helpers ──
