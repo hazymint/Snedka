@@ -261,6 +261,7 @@ app.put("/api/recipes/:id", auth, (req, res) => {
   const recipe = db.prepare("SELECT * FROM recipes WHERE id = ?").get(id);
   if (!recipe || !canManageRecipe(req.user, recipe)) return res.status(403).json({ error: "Нет прав на изменение рецепта" });
   const { name, meal, time, steps, ings, image, visibility } = req.body || {};
+  if (!name || !ings?.length) return res.status(400).json({ error: "Нужны название и продукты" });
   db.transaction(() => {
     db.prepare("UPDATE recipes SET name = ?, meal = ?, time = ?, steps = ?, image = ?, visibility = ? WHERE id = ?")
       .run(name.trim(), meal || "Другое", Number(time) || 0, JSON.stringify(steps || []), image || null, cleanVisibility(visibility), id);
@@ -316,7 +317,15 @@ app.post("/api/admin/ban", auth, requireRole("admin", "moderator"), (req, res) =
   const ips = db.prepare("SELECT ip FROM user_ips WHERE user_id = ?").all(target.id).map((r) => r.ip);
   if (target.last_ip) ips.push(target.last_ip);
   const ins = db.prepare("INSERT OR IGNORE INTO banned_ips (ip, user_id) VALUES (?, ?)");
-  for (const ip of new Set(ips)) if (ip) ins.run(ip, target.id);
+  // Не блокируем IP, которым пользуются другие активные участники: иначе бан по общему
+  // домашнему IP выбивает всю семью и самого модератора без возможности восстановиться.
+  const sharedWithActive = db.prepare(
+    "SELECT 1 FROM user_ips ui JOIN users u ON u.id = ui.user_id WHERE ui.ip = ? AND u.id != ? AND u.banned = 0 LIMIT 1"
+  );
+  for (const ip of new Set(ips)) {
+    if (!ip || sharedWithActive.get(ip, target.id)) continue;
+    ins.run(ip, target.id);
+  }
   res.json({ ok: true });
 });
 
