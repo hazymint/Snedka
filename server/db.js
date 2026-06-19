@@ -35,9 +35,10 @@ CREATE TABLE IF NOT EXISTS user_ips (
 );
 
 CREATE TABLE IF NOT EXISTS banned_ips (
-  ip TEXT PRIMARY KEY,
+  ip TEXT NOT NULL,
   user_id INTEGER,
-  banned_at TEXT DEFAULT (datetime('now'))
+  banned_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (ip, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -98,6 +99,25 @@ if (!has("recipes", "visibility")) db.exec("ALTER TABLE recipes ADD COLUMN visib
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
 if (!has("users", "banned")) db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0");
 if (!has("users", "last_ip")) db.exec("ALTER TABLE users ADD COLUMN last_ip TEXT");
+
+// banned_ips: переход со старого ключа (ip) на составной (ip, user_id) — чтобы разбан
+// удалял только записи конкретного пользователя и не оставлял общий IP заблокированным.
+{
+  const pk = db.prepare("PRAGMA table_info(banned_ips)").all().filter((c) => c.pk).map((c) => c.name);
+  if (!(pk.includes("ip") && pk.includes("user_id"))) {
+    db.exec(`
+      ALTER TABLE banned_ips RENAME TO banned_ips_old;
+      CREATE TABLE banned_ips (
+        ip TEXT NOT NULL,
+        user_id INTEGER,
+        banned_at TEXT DEFAULT (datetime('now')),
+        PRIMARY KEY (ip, user_id)
+      );
+      INSERT OR IGNORE INTO banned_ips (ip, user_id, banned_at) SELECT ip, user_id, banned_at FROM banned_ips_old;
+      DROP TABLE banned_ips_old;
+    `);
+  }
+}
 
 // ── Сидирование базового каталога (один раз) ──
 const seeded = db.prepare("SELECT COUNT(*) c FROM ingredients WHERE is_base = 1").get().c;
