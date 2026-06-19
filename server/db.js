@@ -119,30 +119,40 @@ if (!has("users", "last_ip")) db.exec("ALTER TABLE users ADD COLUMN last_ip TEXT
   }
 }
 
-// ── Сидирование базового каталога (один раз) ──
-const seeded = db.prepare("SELECT COUNT(*) c FROM ingredients WHERE is_base = 1").get().c;
-if (!seeded) {
+// ── Идемпотентный досев базового каталога ──
+// Запускается при каждом старте: добавляет недостающие базовые продукты и рецепты
+// (по имени), не трогая существующие записи и пользовательские данные. Так каталог
+// пополняется и на уже работающих инсталляциях, а не только на чистой БД.
+{
   const insIng = db.prepare(
     "INSERT INTO ingredients (family_id, name, unit, grp, kcal, per, is_base) VALUES (NULL, ?, ?, ?, ?, ?, 1)"
   );
+  const findIng = db.prepare("SELECT id FROM ingredients WHERE is_base = 1 AND name = ?");
   const keyToId = {};
+  let newIng = 0;
   db.transaction(() => {
     for (const [key, name, unit, grp, kcal, per] of INGREDIENTS) {
-      keyToId[key] = insIng.run(name, unit, grp, kcal, per).lastInsertRowid;
+      const existing = findIng.get(name);
+      if (existing) keyToId[key] = existing.id;
+      else { keyToId[key] = insIng.run(name, unit, grp, kcal, per).lastInsertRowid; newIng++; }
     }
   })();
 
+  const findRec = db.prepare("SELECT 1 FROM recipes WHERE is_base = 1 AND name = ?");
   const insRec = db.prepare(
-    "INSERT INTO recipes (family_id, author_id, name, meal, time, steps, visibility, is_base) VALUES (NULL, NULL, ?, ?, ?, ?, 'public', 1)"
+    "INSERT INTO recipes (family_id, author_id, name, meal, time, steps, image, visibility, is_base) VALUES (NULL, NULL, ?, ?, ?, ?, ?, 'public', 1)"
   );
   const insRI = db.prepare("INSERT INTO recipe_ingredients (recipe_id, ingredient_id, amount) VALUES (?, ?, ?)");
+  let newRec = 0;
   db.transaction(() => {
     for (const r of RECIPES) {
-      const rid = insRec.run(r.name, r.meal, r.time, JSON.stringify(r.steps)).lastInsertRowid;
+      if (findRec.get(r.name)) continue; // рецепт уже в каталоге — пропускаем
+      const rid = insRec.run(r.name, r.meal, r.time, JSON.stringify(r.steps), r.image || null).lastInsertRowid;
       for (const [key, amount] of r.ings) if (keyToId[key]) insRI.run(rid, keyToId[key], amount);
+      newRec++;
     }
   })();
-  console.log(`Сид: ${INGREDIENTS.length} продуктов, ${RECIPES.length} рецептов.`);
+  if (newIng || newRec) console.log(`Досев каталога: +${newIng} продуктов, +${newRec} рецептов (в seed-data ${INGREDIENTS.length}/${RECIPES.length}).`);
 }
 
 // Базовые рецепты всегда публичные
