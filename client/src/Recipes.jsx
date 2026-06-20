@@ -1,6 +1,40 @@
 import React, { useState } from "react";
-import { Clock, Flame, Plus, ShoppingBasket, ArrowLeft, Minus, Pencil, Trash2, ThumbsUp, ThumbsDown, Lock, Globe } from "lucide-react";
+import { Clock, Flame, Plus, ShoppingBasket, ArrowLeft, Minus, Pencil, Trash2, ThumbsUp, ThumbsDown, Lock, Globe, Dices, X } from "lucide-react";
 import { recipeKcal, fmtAmount, mealColor } from "./ui.js";
+
+function WhatToEat({ onSurprise }) {
+  const [open, setOpen] = useState(false);
+  const choices = ["Завтрак", "Обед", "Ужин"];
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        className="w-full flex items-center justify-center gap-2 mb-4 px-4 py-3 rounded-xl bg-[#C24A38] text-white font-medium shadow-[0_6px_20px_-10px_rgba(194,74,56,0.9)] hover:bg-[#a83e2e] transition">
+        <Dices size={18} /> Не знаю что поесть
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-40 grid place-items-center p-4 bg-[#23201B]/50 backdrop-blur-sm" onClick={() => setOpen(false)}>
+          <div className="w-full max-w-sm bg-[#F6F3EC] rounded-2xl border border-[#DAD3C4] shadow-xl p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-1">
+              <h3 className="font-serif text-xl">Что приготовить?</h3>
+              <button onClick={() => setOpen(false)} className="grid place-items-center w-8 h-8 -mr-2 -mt-1 rounded-lg text-[#6B655A] hover:bg-white"><X size={18} /></button>
+            </div>
+            <p className="text-sm text-[#6B655A] mb-5">Выберите приём пищи — подберём случайный рецепт из семейных и публичных.</p>
+            <div className="grid gap-2.5">
+              {choices.map((m) => (
+                <button key={m} onClick={() => { setOpen(false); onSurprise(m); }}
+                  className={`flex items-center justify-between px-4 py-3 rounded-xl border text-left font-medium transition hover:border-[#3F6F4B] hover:bg-white ${mealColor(m)}`}>
+                  <span>{m}</span>
+                  <Dices size={16} className="opacity-50" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function VisBadge({ r }) {
   if (r.isBase) return <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-[#DAD3C4] bg-white text-[#6B655A]">Каталог</span>;
@@ -27,11 +61,12 @@ function Reactions({ r, onReact, size = "sm" }) {
   );
 }
 
-export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope, onOpen, onAddAll, onReact, onCreate }) {
+export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope, onOpen, onAddAll, onReact, onSurprise, onCreate }) {
   const meals = ["Все", "Завтрак", "Обед", "Ужин", "Другое"];
   const scopes = [["all", "Все"], ["mine", "Мои семейные"], ["public", "Публичные"]];
   return (
     <div>
+      {onSurprise && <WhatToEat onSurprise={onSurprise} />}
       <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
         {scopes.map(([id, label]) => (
           <button key={id} onClick={() => setScope(id)}

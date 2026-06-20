@@ -65,6 +65,14 @@ export default function App() {
     } catch (e) { showFlash(e.message); }
   };
 
+  const surprise = (meal) => {
+    const pool = recipes.filter((r) => r.meal === meal);
+    if (!pool.length) { showFlash(`Пока нет рецептов: ${meal.toLowerCase()}`); return; }
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    setTab("recipes");
+    setSub({ detail: pick.id });
+  };
+
   const filtered = useMemo(() => recipes.filter((r) => {
     if (mealFilter !== "Все" && r.meal !== mealFilter) return false;
     if (scope === "mine" && !r.mine) return false;
@@ -145,6 +153,7 @@ export default function App() {
             onOpen={(id) => setSub({ detail: id })}
             onAddAll={(r) => addToShopping(r.ings, `«${r.name}» — продукты в списке`)}
             onReact={handleReact}
+            onSurprise={surprise}
             onCreate={() => setSub({ form: "new" })} />
         )}
 
