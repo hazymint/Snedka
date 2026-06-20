@@ -122,13 +122,21 @@ export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope
   );
 }
 
-export function RecipeDetail({ recipe, onBack, onAddAll, onAddOne, onReact, onEdit, onDelete }) {
+export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, onAddAll, onAddOne, onReact, onEdit, onDelete }) {
   const [servings, setServings] = useState(1);
   const [confirmDel, setConfirmDel] = useState(false);
   const scaled = recipe.ings.map((i) => ({ ...i, amount: i.amount * servings }));
 
   return (
     <div>
+      {onSurpriseAgain && (
+        <div className="flex items-center justify-between gap-2 mb-4 px-3.5 py-2.5 rounded-xl bg-[#C24A38]/10 border border-[#C24A38]/30">
+          <span className="flex items-center gap-1.5 text-sm text-[#C24A38]"><Dices size={15} /> Случайный выбор{surpriseMeal ? ` · ${surpriseMeal.toLowerCase()}` : ""}</span>
+          <button onClick={onSurpriseAgain} className="flex items-center gap-1.5 text-sm font-medium text-white bg-[#C24A38] hover:bg-[#a83e2e] px-3 py-1.5 rounded-lg transition">
+            <Dices size={15} /> Ещё вариант
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-4">
         <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-[#6B655A] hover:text-[#23201B]"><ArrowLeft size={16} /> К рецептам</button>
         {recipe.canManage && (

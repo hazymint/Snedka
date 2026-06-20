@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ChefHat, ShoppingBasket, Users, PenLine, LogOut, Loader2, Check, Shield } from "lucide-react";
 import { api, getToken, setToken } from "./api.js";
 import Auth from "./Auth.jsx";
@@ -65,12 +65,32 @@ export default function App() {
     } catch (e) { showFlash(e.message); }
   };
 
+  const lastSurpriseRef = useRef(null);
+
   const surprise = (meal) => {
-    const pool = recipes.filter((r) => r.meal === meal);
+    let pool = recipes.filter((r) => r.meal === meal);
     if (!pool.length) { showFlash(`Пока нет рецептов: ${meal.toLowerCase()}`); return; }
-    const pick = pool[Math.floor(Math.random() * pool.length)];
+
+    // Не предлагать сильно «дизлайкнутые» (если после этого остаётся выбор).
+    const notHated = pool.filter((r) => r.dislikes - r.likes < 3);
+    if (notHated.length) pool = notHated;
+
+    // Не повторять последний показанный рецепт.
+    if (pool.length > 1 && lastSurpriseRef.current != null) {
+      const noRepeat = pool.filter((r) => r.id !== lastSurpriseRef.current);
+      if (noRepeat.length) pool = noRepeat;
+    }
+
+    // Взвешенный случайный выбор: чаще выпадает то, что больше лайкают.
+    const weight = (r) => Math.min(4, Math.max(0.2, 1 + (r.likes - r.dislikes) * 0.5));
+    const total = pool.reduce((s, r) => s + weight(r), 0);
+    let t = Math.random() * total;
+    let pick = pool[pool.length - 1];
+    for (const r of pool) { t -= weight(r); if (t <= 0) { pick = r; break; } }
+
+    lastSurpriseRef.current = pick.id;
     setTab("recipes");
-    setSub({ detail: pick.id });
+    setSub({ detail: pick.id, surprise: meal });
   };
 
   const filtered = useMemo(() => recipes.filter((r) => {
@@ -139,6 +159,8 @@ export default function App() {
         {sub?.detail && openRecipe && !sub.form && (
           <RecipeDetail
             recipe={openRecipe}
+            surpriseMeal={sub.surprise || null}
+            onSurpriseAgain={sub.surprise ? () => surprise(sub.surprise) : null}
             onBack={() => setSub(null)}
             onAddAll={(ings) => addToShopping(ings, `«${openRecipe.name}» — продукты в списке`)}
             onAddOne={(i) => addToShopping([i], `${i.name} — в списке`)}
