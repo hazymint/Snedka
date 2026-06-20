@@ -1,0 +1,23 @@
+# Зависимости
+node_modules/
+
+# Сборка клиента
+dist/
+
+# Lock-файлы (в репозитории не хранятся)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Переменные окружения и секреты
+.env
+.env.local
+
+# Данные и загрузки сервера (создаются в рантайме)
+server/menu.db
+server/menu.db-*
+server/uploads/
+
+# Прочее
+*.log
+.DS_Store
