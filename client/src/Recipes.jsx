@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Clock, Flame, Plus, ShoppingBasket, ArrowLeft, Minus, Pencil, Trash2, ThumbsUp, ThumbsDown, Lock, Globe, Dices, X } from "lucide-react";
-import { recipeKcalPerServing, fmtAmount, mealColor } from "./ui.js";
+import { recipeKcalPerServing, fmtAmount, mealColor, thumbUrl } from "./ui.js";
 
 function WhatToEat({ onSurprise }) {
   const [open, setOpen] = useState(false);
@@ -94,7 +94,7 @@ export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope
           {recipes.map((r) => (
             <article key={r.id} className="group bg-white rounded-xl border border-[#DAD3C4] overflow-hidden hover:shadow-[0_6px_24px_-12px_rgba(35,32,27,0.4)] transition flex flex-col">
               {r.image && (
-                <button onClick={() => onOpen(r.id)} className="block"><img src={r.image} alt="" onError={(e) => (e.currentTarget.style.display = "none")} className="w-full h-36 object-cover" /></button>
+                <button onClick={() => onOpen(r.id)} className="block"><img src={thumbUrl(r.image)} data-full={r.image} alt="" loading="lazy" decoding="async" onError={(e) => { const el = e.currentTarget; if (!el.dataset.fellBack && el.dataset.full && el.dataset.full !== thumbUrl(r.image)) { el.dataset.fellBack = "1"; el.src = el.dataset.full; } else el.style.display = "none"; }} className="w-full h-36 object-cover" /></button>
               )}
               <button onClick={() => onOpen(r.id)} className="text-left p-4 flex-1">
                 <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -168,7 +168,7 @@ export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, on
 
       <div className="mb-5"><Reactions r={recipe} onReact={onReact} size="lg" /></div>
 
-      {recipe.image && <img src={recipe.image} alt="" onError={(e) => (e.currentTarget.style.display = "none")} className="w-full h-56 sm:h-64 object-cover rounded-xl border border-[#DAD3C4] mb-5" />}
+      {recipe.image && <img src={recipe.image} alt="" loading="lazy" decoding="async" onError={(e) => (e.currentTarget.style.display = "none")} className="w-full h-56 sm:h-64 object-cover rounded-xl border border-[#DAD3C4] mb-5" />}
 
       <div className="bg-white rounded-xl border border-[#DAD3C4] p-4 mb-5">
         <div className="flex items-center justify-between mb-3">
@@ -207,7 +207,7 @@ export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, on
                 <span className="shrink-0 grid place-items-center w-6 h-6 rounded-full bg-[#F6F3EC] border border-[#DAD3C4] font-mono text-xs">{i + 1}</span>
                 <div className="pt-0.5 flex-1">
                   {s.text && <span className="whitespace-pre-wrap">{s.text}</span>}
-                  {s.image && <img src={s.image} alt="" onError={(e) => (e.currentTarget.style.display = "none")} className="mt-2 max-h-56 rounded-lg border border-[#DAD3C4]" />}
+                  {s.image && <img src={s.image} alt="" loading="lazy" decoding="async" onError={(e) => (e.currentTarget.style.display = "none")} className="mt-2 max-h-56 rounded-lg border border-[#DAD3C4]" />}
                 </div>
               </li>
             ))}
