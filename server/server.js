@@ -3,6 +3,7 @@ import cors from "cors";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
+import sharp from "sharp";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -31,19 +32,81 @@ app.use((req, res, next) => {
   next();
 });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = (path.extname(file.originalname) || ".jpg").toLowerCase();
-    cb(null, crypto.randomBytes(12).toString("hex") + ext);
+// Файл держим в памяти — sharp перекодирует его перед записью на диск.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 12 * 1024 * 1024 }, // допускаем «тяжёлый» оригинал — после сжатия он станет лёгким
+  fileFilter: (req, file, cb) => {
+    // SVG не растеризуем: вектор с того же origin = риск хранимого XSS.
+    if (file.mimetype === "image/svg+xml") return cb(new Error("SVG не поддерживается"));
+    /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error("Можно загружать только изображения"));
   },
 });
-const upload = multer({
-  storage,
-  limits: { fileSize: 6 * 1024 * 1024 },
-  fileFilter: (req, file, cb) =>
-    /^image\//.test(file.mimetype) ? cb(null, true) : cb(new Error("Можно загружать только изображения")),
-});
+
+// Целевые размеры по назначению картинки.
+const IMG_PRESETS = {
+  cover: { width: 1280, quality: 80 },
+  step: { width: 800, quality: 78 },
+};
+const THUMB = { width: 400, quality: 70 };
+
+// Перекодирует буфер в WebP (+ EXIF-поворот, ресайз без апскейла) и кладёт основной файл и миниатюру.
+async function processUpload(buffer, variant) {
+  const preset = IMG_PRESETS[variant] || IMG_PRESETS.cover;
+  const base = crypto.randomBytes(12).toString("hex");
+  const pipeline = sharp(buffer, { failOn: "none" }).rotate(); // .rotate() применяет EXIF-ориентацию
+
+  await pipeline
+    .clone()
+    .resize({ width: preset.width, withoutEnlargement: true })
+    .webp({ quality: preset.quality })
+    .toFile(path.join(UPLOAD_DIR, `${base}.webp`));
+
+  await pipeline
+    .clone()
+    .resize({ width: THUMB.width, withoutEnlargement: true })
+    .webp({ quality: THUMB.quality })
+    .toFile(path.join(UPLOAD_DIR, `${base}_thumb.webp`));
+
+  return { url: `/uploads/${base}.webp`, thumb: `/uploads/${base}_thumb.webp` };
+}
+
+// ── Сборка мусора в uploads ──
+const isLocalUpload = (url) => typeof url === "string" && url.startsWith("/uploads/");
+
+// Все картинки, на которые ссылается рецепт (обложка + фото шагов).
+function recipeImageUrls(recipe) {
+  const urls = [];
+  if (recipe.image) urls.push(recipe.image);
+  try {
+    for (const s of JSON.parse(recipe.steps || "[]")) {
+      const img = typeof s === "string" ? null : s?.image;
+      if (img) urls.push(img);
+    }
+  } catch {}
+  return urls;
+}
+
+// Ссылается ли на этот URL хоть один рецепт (учитывая уже применённое изменение БД).
+function isImageReferenced(url) {
+  if (db.prepare("SELECT 1 FROM recipes WHERE image = ? LIMIT 1").get(url)) return true;
+  if (db.prepare("SELECT 1 FROM recipes WHERE steps LIKE ? LIMIT 1").get(`%${url}%`)) return true;
+  return false;
+}
+
+// Удаляет с диска файлы (и их миниатюры) из списка, если на них больше никто не ссылается.
+// Вызывать ПОСЛЕ записи нового состояния в БД.
+function removeOrphanUploads(urls) {
+  for (const url of urls) {
+    if (!isLocalUpload(url) || isImageReferenced(url)) continue;
+    const main = path.join(UPLOAD_DIR, path.basename(url)); // basename отсекает любой обход пути
+    fs.rm(main, { force: true }, () => {});
+    if (url.endsWith(".webp")) {
+      const thumb = path.join(UPLOAD_DIR, path.basename(url.replace(/\.webp$/, "_thumb.webp")));
+      fs.rm(thumb, { force: true }, () => {});
+    }
+  }
+}
 
 const SECRET = process.env.JWT_SECRET || (() => {
   if (process.env.NODE_ENV === "production") {
@@ -197,10 +260,15 @@ app.get("/api/me", auth, (req, res) => res.json(mePayload(req.user)));
 
 // ──────────────────────────  UPLOADS  ──────────────────────────
 app.post("/api/uploads", auth, (req, res) => {
-  upload.single("image")(req, res, (err) => {
+  upload.single("image")(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message });
     if (!req.file) return res.status(400).json({ error: "Файл не получен" });
-    res.json({ url: `/uploads/${req.file.filename}` });
+    try {
+      const out = await processUpload(req.file.buffer, req.body?.variant);
+      res.json(out); // { url, thumb }
+    } catch {
+      res.status(400).json({ error: "Не удалось обработать изображение" });
+    }
   });
 });
 
@@ -277,12 +345,16 @@ app.put("/api/recipes/:id", auth, (req, res) => {
   if (!recipe || !canManageRecipe(req.user, recipe)) return res.status(403).json({ error: "Нет прав на изменение рецепта" });
   const { name, meal, time, servings, steps, ings, image, visibility } = req.body || {};
   if (!name || !ings?.length) return res.status(400).json({ error: "Нужны название и продукты" });
+  const oldImages = recipeImageUrls(recipe); // что было до изменения
   db.transaction(() => {
     db.prepare("UPDATE recipes SET name = ?, meal = ?, time = ?, servings = ?, steps = ?, image = ?, visibility = ? WHERE id = ?")
       .run(name.trim(), meal || "Другое", Number(time) || 0, cleanServings(servings), JSON.stringify(steps || []), image || null, cleanVisibility(visibility), id);
     db.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(id);
     saveRecipeIngredients(id, ings);
   })();
+  // Удаляем картинки, которых больше нет в рецепте (и на которые никто не ссылается).
+  const newImages = new Set(recipeImageUrls({ image, steps: JSON.stringify(steps || []) }));
+  removeOrphanUploads(oldImages.filter((u) => !newImages.has(u)));
   res.json(loadRecipes(req.user).find((r) => r.id === id));
 });
 
@@ -290,7 +362,9 @@ app.delete("/api/recipes/:id", auth, (req, res) => {
   const id = Number(req.params.id);
   const recipe = db.prepare("SELECT * FROM recipes WHERE id = ?").get(id);
   if (!recipe || !canManageRecipe(req.user, recipe)) return res.status(403).json({ error: "Нет прав на удаление рецепта" });
+  const images = recipeImageUrls(recipe);
   db.prepare("DELETE FROM recipes WHERE id = ?").run(id);
+  removeOrphanUploads(images);
   res.json({ ok: true });
 });
 

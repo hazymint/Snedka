@@ -23,6 +23,35 @@ const MEAL_COLORS = {
 };
 export const mealColor = (m) => MEAL_COLORS[m] || MEAL_COLORS["Другое"];
 
+// URL лёгкой миниатюры: для локальных загрузок она лежит рядом с основным файлом.
+export const thumbUrl = (url) =>
+  url && url.startsWith("/uploads/") && url.endsWith(".webp")
+    ? url.replace(/\.webp$/, "_thumb.webp")
+    : url;
+
+// Уменьшает изображение прямо в браузере перед отправкой — экономит мобильный трафик.
+// Возвращает Blob (WebP) либо исходный файл, если декодировать не удалось (например, HEIC) —
+// тогда финальное сжатие сделает сервер.
+export async function downscaleImage(file, maxDim = 1600, quality = 0.82) {
+  if (!file || !file.type?.startsWith("image/") || file.type === "image/gif") return file;
+  if (typeof createImageBitmap !== "function") return file;
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < 1024 * 1024) { bitmap.close?.(); return file; }
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, w, h);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+    return blob && blob.size < file.size ? blob : file;
+  } catch {
+    return file;
+  }
+}
+
 export const ROLE_LABEL = { admin: "Админ", moderator: "Модератор", user: "Пользователь" };
 export const roleBadge = (r) =>
   r === "admin"

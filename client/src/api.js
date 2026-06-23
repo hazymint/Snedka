@@ -1,3 +1,5 @@
+import { downscaleImage } from "./ui.js";
+
 const TOKEN_KEY = "menu_token";
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY));
@@ -21,9 +23,11 @@ export const api = {
   login: (b) => req("/auth/login", { method: "POST", body: b }),
   me: () => req("/me"),
 
-  uploadImage: async (file) => {
+  uploadImage: async (file, variant = "cover") => {
+    const blob = await downscaleImage(file, variant === "step" ? 1200 : 1600);
     const fd = new FormData();
-    fd.append("image", file);
+    fd.append("image", blob, "upload.webp");
+    fd.append("variant", variant);
     const res = await fetch("/api/uploads", {
       method: "POST",
       headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
@@ -31,7 +35,7 @@ export const api = {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Ошибка загрузки");
-    return data; // { url }
+    return data; // { url, thumb }
   },
 
   joinFamily: (code) => req("/family/join", { method: "POST", body: { code } }),

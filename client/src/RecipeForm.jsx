@@ -15,7 +15,7 @@ function ImageInput({ value, onChange, variant = "cover" }) {
     if (!file) return;
     setBusy(true); setError("");
     try {
-      const { url } = await api.uploadImage(file);
+      const { url } = await api.uploadImage(file, variant === "step" ? "step" : "cover");
       onChange(url);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
