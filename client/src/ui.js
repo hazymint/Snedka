@@ -52,6 +52,64 @@ export async function downscaleImage(file, maxDim = 1600, quality = 0.82) {
   }
 }
 
+// SQLite хранит время как UTC-строку "YYYY-MM-DD HH:MM:SS" без таймзоны.
+// Приводим к ISO с 'Z', чтобы браузер показал её в локальном времени пользователя.
+const parseUtc = (s) => (s ? new Date(s.replace(" ", "T") + "Z") : null);
+
+export function fmtDateTime(s) {
+  const d = parseUtc(s);
+  if (!d || isNaN(d)) return "—";
+  return d.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+export function fmtDate(s) {
+  const d = parseUtc(s);
+  if (!d || isNaN(d)) return "—";
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// Относительное время «5 мин назад» — для журнала и активности.
+export function fmtRelative(s) {
+  const d = parseUtc(s);
+  if (!d || isNaN(d)) return "—";
+  const sec = Math.round((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return "только что";
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} мин назад`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr} ч назад`;
+  const day = Math.round(hr / 24);
+  if (day < 30) return `${day} дн назад`;
+  return fmtDate(s);
+}
+
+// Человекочитаемые подписи событий журнала.
+export const ACTION_LABEL = {
+  register: "Регистрация",
+  login: "Вход",
+  login_fail: "Неудачный вход",
+  login_blocked: "Вход заблокирован",
+  ban: "Бан",
+  unban: "Разбан",
+  role_change: "Смена роли",
+  recipe_create: "Создан рецепт",
+  recipe_update: "Изменён рецепт",
+  recipe_delete: "Удалён рецепт",
+  family_create: "Создана семья",
+  family_join: "Вход в семью",
+};
+
+// Цвет-тон для значка события.
+export const actionTone = (a) => {
+  if (a === "ban" || a === "recipe_delete" || a === "login_fail" || a === "login_blocked")
+    return "bg-danger/12 text-danger border-danger/30";
+  if (a === "register" || a === "recipe_create" || a === "family_create")
+    return "bg-mint/15 text-primary-800 border-primary/30";
+  if (a === "role_change" || a === "unban")
+    return "bg-violet/12 text-violet-700 border-violet/30";
+  return "bg-muted/12 text-ink-soft border-muted/30";
+};
+
 export const ROLE_LABEL = { admin: "Админ", moderator: "Модератор", user: "Пользователь" };
 export const roleBadge = (r) =>
   r === "admin"
