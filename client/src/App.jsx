@@ -7,6 +7,7 @@ import RecipeForm from "./RecipeForm.jsx";
 import Shopping from "./Shopping.jsx";
 import Family from "./Family.jsx";
 import Admin from "./Admin.jsx";
+import ThemeToggle from "./ThemeToggle.jsx";
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -103,7 +104,7 @@ export default function App() {
   const openRecipe = sub?.detail ? recipes.find((r) => r.id === sub.detail) : null;
   const editRecipe = sub?.form && sub.form !== "new" ? recipes.find((r) => r.id === sub.form) : null;
 
-  if (booting) return <div className="min-h-screen grid place-items-center"><Loader2 className="animate-spin text-[#3F6F4B]" /></div>;
+  if (booting) return <div className="min-h-screen grid place-items-center"><Loader2 className="animate-spin text-primary" /></div>;
   if (!me) return <Auth onAuthed={onAuthed} />;
 
   const isStaff = me.user.role === "admin" || me.user.role === "moderator";
@@ -115,34 +116,35 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#F6F3EC] text-[#23201B] antialiased">
-      <header className="sticky top-0 z-20 bg-[#F6F3EC]/95 backdrop-blur border-b border-[#DAD3C4]">
+    <div className="min-h-screen bg-paper text-ink antialiased">
+      <header className="sticky top-0 z-20 bg-paper/95 backdrop-blur border-b border-line">
         <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
           <button onClick={() => { setTab("recipes"); setSub(null); }} className="flex items-center gap-2">
-            <span className="grid place-items-center w-9 h-9 rounded-lg bg-[#3F6F4B] text-[#F6F3EC]"><ChefHat size={20} /></span>
+            <span className="grid place-items-center w-9 h-9 rounded-lg bg-primary text-paper"><ChefHat size={20} /></span>
             <span className="font-serif text-xl tracking-tight hidden md:inline">Снедка</span>
           </button>
 
           <nav className="flex items-center gap-1">
             {tabs.map((t) => (
               <button key={t.id} onClick={() => { setTab(t.id); setSub(null); }}
-                className={`relative flex items-center gap-1.5 px-3 h-10 rounded-lg text-sm font-medium transition ${tab === t.id && !sub ? "bg-[#3F6F4B] text-[#F6F3EC]" : "hover:bg-white"}`}>
+                className={`relative flex items-center gap-1.5 px-3 h-10 rounded-lg text-sm font-medium transition ${tab === t.id && !sub ? "bg-primary text-paper" : "hover:bg-surface"}`}>
                 <t.icon size={17} /><span className="hidden sm:inline">{t.label}</span>
-                {t.badge > 0 && <span className="grid place-items-center min-w-5 h-5 px-1 rounded-full bg-[#C24A38] text-white text-xs font-bold">{t.badge}</span>}
+                {t.badge > 0 && <span className="grid place-items-center min-w-5 h-5 px-1 rounded-full bg-danger text-white text-xs font-bold">{t.badge}</span>}
               </button>
             ))}
             <button onClick={() => { setTab("recipes"); setSub({ form: "new" }); }}
-              className="flex items-center gap-1.5 px-3 h-10 rounded-lg border border-[#DAD3C4] bg-white hover:border-[#3F6F4B]/50 text-sm font-medium ml-1">
+              className="flex items-center gap-1.5 px-3 h-10 rounded-lg border border-line bg-surface hover:border-primary/50 text-sm font-medium ml-1">
               <PenLine size={16} /><span className="hidden sm:inline">Новый</span>
             </button>
-            <button onClick={logout} title="Выйти" className="grid place-items-center w-10 h-10 rounded-lg hover:bg-white text-[#6B655A]"><LogOut size={18} /></button>
+            <ThemeToggle />
+            <button onClick={logout} title="Выйти" className="grid place-items-center w-10 h-10 rounded-lg hover:bg-surface text-muted"><LogOut size={18} /></button>
           </nav>
         </div>
       </header>
 
       {flash && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#23201B] text-[#F6F3EC] text-sm shadow-lg">
-          <Check size={16} className="text-[#7FB98C]" /> {flash}
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-ink text-paper text-sm shadow-lg">
+          <Check size={16} className="text-mint" /> {flash}
         </div>
       )}
 

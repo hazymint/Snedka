@@ -21,8 +21,8 @@ export default function Admin({ onFlash }) {
     finally { setBusyId(null); }
   };
 
-  if (error && !data) return <p className="text-[#C24A38]">{error}</p>;
-  if (!data) return <div className="grid place-items-center py-20"><Loader2 className="animate-spin text-[#3F6F4B]" /></div>;
+  if (error && !data) return <p className="text-danger">{error}</p>;
+  if (!data) return <div className="grid place-items-center py-20"><Loader2 className="animate-spin text-primary" /></div>;
 
   const meRole = data.me.role;
   const isAdmin = meRole === "admin";
@@ -35,25 +35,25 @@ export default function Admin({ onFlash }) {
   return (
     <div>
       <h1 className="font-serif text-2xl mb-1 flex items-center gap-2"><Shield size={24} /> Управление</h1>
-      <p className="text-sm text-[#6B655A] mb-5">
+      <p className="text-sm text-muted mb-5">
         Вы вошли как {ROLE_LABEL[meRole].toLowerCase()}. Бан по аккаунту блокирует и все известные IP пользователя.
       </p>
 
-      {error && <p className="text-sm text-[#C24A38] mb-3 flex items-center gap-1.5"><AlertTriangle size={15} /> {error}</p>}
+      {error && <p className="text-sm text-danger mb-3 flex items-center gap-1.5"><AlertTriangle size={15} /> {error}</p>}
 
-      <div className="bg-white rounded-xl border border-[#DAD3C4] overflow-hidden">
-        <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-[#F6F3EC] text-xs font-medium uppercase tracking-wide text-[#6B655A]">
+      <div className="bg-surface rounded-xl border border-line overflow-hidden">
+        <div className="hidden sm:grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-paper text-xs font-medium uppercase tracking-wide text-muted">
           <span>Пользователь</span><span>Роль</span><span>IP</span><span>Действия</span>
         </div>
-        <ul className="divide-y divide-[#EEE9DD]">
+        <ul className="divide-y divide-line-soft">
           {data.users.map((u) => (
             <li key={u.id} className="px-4 py-3 grid sm:grid-cols-[1fr_auto_auto_auto] gap-3 items-center">
               <div className="min-w-0">
                 <div className="text-sm font-medium flex items-center gap-2">
-                  {u.name}{u.id === data.me.id && <span className="text-xs text-[#A8A192]">(вы)</span>}
-                  {u.banned ? <span className="text-xs px-2 py-0.5 rounded-full bg-[#C24A38] text-white">бан</span> : null}
+                  {u.name}{u.id === data.me.id && <span className="text-xs text-muted-soft">(вы)</span>}
+                  {u.banned ? <span className="text-xs px-2 py-0.5 rounded-full bg-danger text-white">бан</span> : null}
                 </div>
-                <div className="text-xs text-[#A8A192] truncate">{u.email} · {u.family || "—"}</div>
+                <div className="text-xs text-muted-soft truncate">{u.email} · {u.family || "—"}</div>
               </div>
 
               <div>
@@ -70,21 +70,21 @@ export default function Admin({ onFlash }) {
                 )}
               </div>
 
-              <div className="text-xs font-mono text-[#A8A192]">{u.last_ip || "—"}</div>
+              <div className="text-xs font-mono text-muted-soft">{u.last_ip || "—"}</div>
 
               <div className="flex justify-end">
                 {canActOn(u) ? (
                   busyId === u.id ? (
-                    <Loader2 size={16} className="animate-spin text-[#6B655A]" />
+                    <Loader2 size={16} className="animate-spin text-muted" />
                   ) : u.banned ? (
                     <button onClick={() => act(() => api.adminUnban(u.id), u.id)}
-                      className="flex items-center gap-1.5 text-sm text-[#3F6F4B] hover:underline"><RotateCcw size={15} /> Разбанить</button>
+                      className="flex items-center gap-1.5 text-sm text-primary hover:underline"><RotateCcw size={15} /> Разбанить</button>
                   ) : (
                     <button onClick={() => act(() => api.adminBan(u.id), u.id)}
-                      className="flex items-center gap-1.5 text-sm text-[#C24A38] hover:underline"><Ban size={15} /> Забанить</button>
+                      className="flex items-center gap-1.5 text-sm text-danger hover:underline"><Ban size={15} /> Забанить</button>
                   )
                 ) : (
-                  <span className="text-xs text-[#C4BCA9]">—</span>
+                  <span className="text-xs text-line-strong">—</span>
                 )}
               </div>
             </li>
