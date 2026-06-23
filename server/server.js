@@ -185,6 +185,15 @@ function canManageRecipe(user, r) {
   return isStaff && r.visibility === "public";
 }
 
+// Кто может править/удалять продукт (ингредиент каталога).
+// Админ и модератор управляют всем каталогом (базовыми и семейными продуктами);
+// обычный пользователь — только собственными продуктами своей семьи.
+function canManageIngredient(user, ing) {
+  const isStaff = user.role === "admin" || user.role === "moderator";
+  if (isStaff) return true;
+  return !ing.is_base && ing.family_id === user.family_id;
+}
+
 // ── helpers ──
 function mePayload(user) {
   const family = db.prepare("SELECT id, name, owner_id, invite_code FROM families WHERE id = ?").get(user.family_id);
@@ -348,7 +357,41 @@ app.post("/api/ingredients", auth, (req, res) => {
   const id = db.prepare(
     "INSERT INTO ingredients (family_id, name, unit, grp, kcal, per, is_base) VALUES (?, ?, ?, ?, ?, ?, 0)"
   ).run(req.user.family_id, name.trim(), unit, group, Number(kcal) || 0, per === "pc" ? "pc" : "100").lastInsertRowid;
+  logEvent("product_create", { actor: req.user, target: { id, name: name.trim() }, ip: req.ip });
   res.json(db.prepare("SELECT id, name, unit, grp AS \"group\", kcal, per, 1 AS custom FROM ingredients WHERE id = ?").get(id));
+});
+
+const cleanPer = (p) => (p === "pc" ? "pc" : "100");
+const ingredientView = (id) =>
+  db.prepare("SELECT id, name, unit, grp AS \"group\", kcal, per, (family_id IS NOT NULL) AS custom FROM ingredients WHERE id = ?").get(id);
+
+app.put("/api/ingredients/:id", auth, (req, res) => {
+  const id = Number(req.params.id);
+  const ing = db.prepare("SELECT * FROM ingredients WHERE id = ?").get(id);
+  if (!ing || !canManageIngredient(req.user, ing)) return res.status(403).json({ error: "Нет прав на изменение продукта" });
+  const { name, unit, group, kcal, per } = req.body || {};
+  if (!name || !unit || !group) return res.status(400).json({ error: "Укажите название, единицу и отдел" });
+  db.prepare("UPDATE ingredients SET name = ?, unit = ?, grp = ?, kcal = ?, per = ? WHERE id = ?")
+    .run(name.trim(), unit, group, Number(kcal) || 0, cleanPer(per), id);
+  // Правка базового или чужого продукта — это модерация, отмечаем в журнале.
+  const moderated = !!ing.is_base || ing.family_id !== req.user.family_id;
+  logEvent("product_update", { actor: req.user, target: { id, name: name.trim() }, meta: moderated ? { moderated: true } : null, ip: req.ip });
+  res.json(ingredientView(id));
+});
+
+app.delete("/api/ingredients/:id", auth, (req, res) => {
+  const id = Number(req.params.id);
+  const ing = db.prepare("SELECT * FROM ingredients WHERE id = ?").get(id);
+  if (!ing || !canManageIngredient(req.user, ing)) return res.status(403).json({ error: "Нет прав на удаление продукта" });
+  // Продукт, на который ссылаются рецепты, не удаляем — иначе разъедутся составы рецептов.
+  const usedIn = db.prepare("SELECT COUNT(*) c FROM recipe_ingredients WHERE ingredient_id = ?").get(id).c;
+  if (usedIn) return res.status(409).json({ error: `Продукт используется в рецептах (${usedIn}) — сначала уберите его оттуда` });
+  // Из списков покупок убираем — там это просто незавершённая позиция.
+  db.prepare("DELETE FROM shopping_items WHERE ingredient_id = ?").run(id);
+  db.prepare("DELETE FROM ingredients WHERE id = ?").run(id);
+  const moderated = !!ing.is_base || ing.family_id !== req.user.family_id;
+  logEvent("product_delete", { actor: req.user, target: { id, name: ing.name }, meta: moderated ? { moderated: true } : null, ip: req.ip });
+  res.json({ ok: true });
 });
 
 // ──────────────────────────  RECIPES  ──────────────────────────
@@ -446,6 +489,18 @@ app.get("/api/admin/users", auth, requireRole("admin", "moderator"), (req, res) 
      FROM users u LEFT JOIN families f ON f.id = u.family_id ORDER BY u.id`
   ).all();
   res.json({ users, me: { id: req.user.id, role: req.user.role } });
+});
+
+// ── Каталог продуктов для управления: базовые и семейные, со счётчиком использования ──
+app.get("/api/admin/products", auth, requireRole("admin", "moderator"), (req, res) => {
+  const products = db.prepare(
+    `SELECT i.id, i.name, i.unit, i.grp AS "group", i.kcal, i.per, i.is_base, i.family_id,
+            f.name AS family,
+            (SELECT COUNT(*) FROM recipe_ingredients ri WHERE ri.ingredient_id = i.id) AS recipe_count
+     FROM ingredients i LEFT JOIN families f ON f.id = i.family_id
+     ORDER BY i.is_base DESC, i.grp, i.name`
+  ).all();
+  res.json({ products, groups: GROUP_ORDER });
 });
 
 // ── Сводка для дашборда: счётчики, активность, ряды по дням ──
