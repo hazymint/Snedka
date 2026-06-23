@@ -75,39 +75,6 @@
       html { background-color: rgb(var(--c-paper)); }
       html.dark { color-scheme: dark; }
     </style>
-
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      const cssVar = (name) => `rgb(var(${name}) / <alpha-value>)`;
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            colors: {
-              paper: cssVar("--c-paper"),
-              ink: cssVar("--c-ink"),
-              "ink-soft": cssVar("--c-ink-soft"),
-              surface: cssVar("--c-surface"),
-              "line-soft": cssVar("--c-line-soft"),
-              line: cssVar("--c-line"),
-              "line-strong": cssVar("--c-line-strong"),
-              muted: cssVar("--c-muted"),
-              "muted-soft": cssVar("--c-muted-soft"),
-              primary: cssVar("--c-primary"),
-              "primary-700": cssVar("--c-primary-700"),
-              "primary-800": cssVar("--c-primary-800"),
-              mint: cssVar("--c-mint"),
-              danger: cssVar("--c-danger"),
-              "danger-700": cssVar("--c-danger-700"),
-              accent: cssVar("--c-accent"),
-              "accent-700": cssVar("--c-accent-700"),
-              violet: cssVar("--c-violet"),
-              "violet-700": cssVar("--c-violet-700"),
-            },
-          },
-        },
-      };
-    </script>
   </head>
   <body class="bg-paper">
     <div id="root"></div>
