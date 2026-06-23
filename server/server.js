@@ -210,6 +210,7 @@ function loadRecipes(user) {
     time: r.time,
     servings: r.servings || 1,
     image: r.image || null,
+    imagePos: r.image_pos || null,
     visibility: r.is_base ? "public" : r.visibility,
     isBase: !!r.is_base,
     mine: !r.is_base && r.family_id === fam,
@@ -325,14 +326,21 @@ function saveRecipeIngredients(recipeId, ings) {
 }
 const cleanVisibility = (v) => (v === "public" ? "public" : "family");
 const cleanServings = (s) => Math.min(99, Math.max(1, Math.round(Number(s) || 1)));
+// Точка кадрирования обложки в формате "X% Y%" (для CSS object-position). Чужой ввод не пускаем.
+function cleanImagePos(v) {
+  const m = typeof v === "string" && v.match(/^(\d{1,3}(?:\.\d+)?)%\s+(\d{1,3}(?:\.\d+)?)%$/);
+  if (!m) return null;
+  const clamp = (n) => Math.min(100, Math.max(0, parseFloat(n)));
+  return `${clamp(m[1])}% ${clamp(m[2])}%`;
+}
 
 app.post("/api/recipes", auth, (req, res) => {
-  const { name, meal, time, servings, steps, ings, image, visibility } = req.body || {};
+  const { name, meal, time, servings, steps, ings, image, imagePos, visibility } = req.body || {};
   if (!name || !ings?.length) return res.status(400).json({ error: "Нужны название и продукты" });
   const id = db.transaction(() => {
     const rid = db.prepare(
-      "INSERT INTO recipes (family_id, author_id, name, meal, time, servings, steps, image, visibility, is_base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
-    ).run(req.user.family_id, req.user.id, name.trim(), meal || "Другое", Number(time) || 0, cleanServings(servings), JSON.stringify(steps || []), image || null, cleanVisibility(visibility)).lastInsertRowid;
+      "INSERT INTO recipes (family_id, author_id, name, meal, time, servings, steps, image, image_pos, visibility, is_base) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)"
+    ).run(req.user.family_id, req.user.id, name.trim(), meal || "Другое", Number(time) || 0, cleanServings(servings), JSON.stringify(steps || []), image || null, cleanImagePos(imagePos), cleanVisibility(visibility)).lastInsertRowid;
     saveRecipeIngredients(rid, ings);
     return rid;
   })();
@@ -343,12 +351,12 @@ app.put("/api/recipes/:id", auth, (req, res) => {
   const id = Number(req.params.id);
   const recipe = db.prepare("SELECT * FROM recipes WHERE id = ?").get(id);
   if (!recipe || !canManageRecipe(req.user, recipe)) return res.status(403).json({ error: "Нет прав на изменение рецепта" });
-  const { name, meal, time, servings, steps, ings, image, visibility } = req.body || {};
+  const { name, meal, time, servings, steps, ings, image, imagePos, visibility } = req.body || {};
   if (!name || !ings?.length) return res.status(400).json({ error: "Нужны название и продукты" });
   const oldImages = recipeImageUrls(recipe); // что было до изменения
   db.transaction(() => {
-    db.prepare("UPDATE recipes SET name = ?, meal = ?, time = ?, servings = ?, steps = ?, image = ?, visibility = ? WHERE id = ?")
-      .run(name.trim(), meal || "Другое", Number(time) || 0, cleanServings(servings), JSON.stringify(steps || []), image || null, cleanVisibility(visibility), id);
+    db.prepare("UPDATE recipes SET name = ?, meal = ?, time = ?, servings = ?, steps = ?, image = ?, image_pos = ?, visibility = ? WHERE id = ?")
+      .run(name.trim(), meal || "Другое", Number(time) || 0, cleanServings(servings), JSON.stringify(steps || []), image || null, cleanImagePos(imagePos), cleanVisibility(visibility), id);
     db.prepare("DELETE FROM recipe_ingredients WHERE recipe_id = ?").run(id);
     saveRecipeIngredients(id, ings);
   })();

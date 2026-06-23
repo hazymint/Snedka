@@ -94,7 +94,7 @@ export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope
           {recipes.map((r) => (
             <article key={r.id} className="group bg-surface rounded-xl border border-line overflow-hidden hover:shadow-[0_6px_24px_-12px_rgba(35,32,27,0.4)] transition flex flex-col">
               {r.image && (
-                <button onClick={() => onOpen(r.id)} className="block"><img src={thumbUrl(r.image)} data-full={r.image} alt="" loading="lazy" decoding="async" onError={(e) => { const el = e.currentTarget; if (!el.dataset.fellBack && el.dataset.full && el.dataset.full !== thumbUrl(r.image)) { el.dataset.fellBack = "1"; el.src = el.dataset.full; } else el.style.display = "none"; }} className="w-full h-36 object-cover" /></button>
+                <button onClick={() => onOpen(r.id)} className="block"><img src={thumbUrl(r.image)} data-full={r.image} alt="" loading="lazy" decoding="async" style={{ objectPosition: r.imagePos || "50% 50%" }} onError={(e) => { const el = e.currentTarget; if (!el.dataset.fellBack && el.dataset.full && el.dataset.full !== thumbUrl(r.image)) { el.dataset.fellBack = "1"; el.src = el.dataset.full; } else el.style.display = "none"; }} className="w-full aspect-[16/10] object-cover" /></button>
               )}
               <button onClick={() => onOpen(r.id)} className="text-left p-4 flex-1">
                 <div className="flex items-center gap-2 mb-2 flex-wrap">

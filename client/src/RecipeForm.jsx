@@ -1,10 +1,65 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { ArrowLeft, Plus, X, Search, Save, LayoutGrid, ChevronDown, ImagePlus, Loader2, Lock, Globe, Minus } from "lucide-react";
 import { api } from "./api.js";
 import { MEALS, UNITS, perForUnit, defaultAmount, mealColor } from "./ui.js";
 
+const clampPct = (n) => Math.min(100, Math.max(0, n));
+const fmtPos = (x, y) => `${Math.round(clampPct(x) * 10) / 10}% ${Math.round(clampPct(y) * 10) / 10}%`;
+const parsePos = (s) => {
+  const m = typeof s === "string" && s.match(/(-?\d+(?:\.\d+)?)%\s+(-?\d+(?:\.\d+)?)%/);
+  return m ? { x: clampPct(+m[1]), y: clampPct(+m[2]) } : { x: 50, y: 50 };
+};
+
+// Редактор обложки: перетаскиванием выбираем видимую область (object-position).
+// Кадр повторяет пропорции карточки в списке — что видно здесь, то и попадёт в список.
+function CoverEditor({ src, pos, onPos, onRemove }) {
+  const frameRef = useRef(null);
+  const natural = useRef({ w: 0, h: 0 });
+  const drag = useRef(null);
+  const [p, setP] = useState(() => parsePos(pos));
+
+  useEffect(() => { setP(parsePos(pos)); }, [pos]);
+
+  const onLoad = (e) => { natural.current = { w: e.target.naturalWidth, h: e.target.naturalHeight }; };
+
+  const start = (e) => {
+    frameRef.current?.setPointerCapture?.(e.pointerId);
+    drag.current = { x: e.clientX, y: e.clientY, px: p.x, py: p.y };
+  };
+  const move = (e) => {
+    if (!drag.current || !frameRef.current) return;
+    const rect = frameRef.current.getBoundingClientRect();
+    const { w: iw, h: ih } = natural.current;
+    if (!iw || !ih) return;
+    const scale = Math.max(rect.width / iw, rect.height / ih); // как при object-cover
+    const overflowX = iw * scale - rect.width;
+    const overflowY = ih * scale - rect.height;
+    const dx = e.clientX - drag.current.x;
+    const dy = e.clientY - drag.current.y;
+    // тянем картинку вправо/вниз → показываем её левую/верхнюю часть → позиция уменьшается
+    const nx = overflowX > 0 ? clampPct(drag.current.px - (dx / overflowX) * 100) : 50;
+    const ny = overflowY > 0 ? clampPct(drag.current.py - (dy / overflowY) * 100) : 50;
+    setP({ x: nx, y: ny });
+    onPos?.(fmtPos(nx, ny));
+  };
+  const end = (e) => { drag.current = null; frameRef.current?.releasePointerCapture?.(e.pointerId); };
+
+  return (
+    <div>
+      <div ref={frameRef} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        className="relative w-full aspect-[16/10] overflow-hidden rounded-lg border border-line bg-paper cursor-grab active:cursor-grabbing select-none touch-none">
+        <img src={src} alt="" draggable={false} onLoad={onLoad}
+          style={{ objectPosition: `${p.x}% ${p.y}%` }}
+          className="w-full h-full object-cover pointer-events-none" />
+        <button onClick={onRemove} className="absolute top-2 right-2 grid place-items-center w-8 h-8 rounded-full bg-black/60 text-white hover:bg-black/80"><X size={16} /></button>
+      </div>
+      <p className="text-xs text-muted mt-1.5">Перетащите изображение, чтобы выбрать, как оно обрежется в списке рецептов.</p>
+    </div>
+  );
+}
+
 // Загрузчик изображения: кнопка/превью. value = url | null
-function ImageInput({ value, onChange, variant = "cover" }) {
+function ImageInput({ value, onChange, variant = "cover", pos, onPosChange }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -17,6 +72,7 @@ function ImageInput({ value, onChange, variant = "cover" }) {
     try {
       const { url } = await api.uploadImage(file, variant === "step" ? "step" : "cover");
       onChange(url);
+      onPosChange?.("50% 50%"); // новая картинка — кадр по центру
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
@@ -45,10 +101,7 @@ function ImageInput({ value, onChange, variant = "cover" }) {
     <div>
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={pick} />
       {value ? (
-        <div className="relative inline-block w-full">
-          <img src={value} alt="" className="w-full h-auto max-h-[26rem] object-contain rounded-lg border border-line bg-paper" />
-          <button onClick={() => onChange(null)} className="absolute top-2 right-2 grid place-items-center w-8 h-8 rounded-full bg-black/60 text-white hover:bg-black/80"><X size={16} /></button>
-        </div>
+        <CoverEditor src={value} pos={pos} onPos={onPosChange} onRemove={() => onChange(null)} />
       ) : (
         <button onClick={() => ref.current?.click()} disabled={busy}
           className="w-full h-32 grid place-items-center rounded-lg border-2 border-dashed border-line text-muted hover:border-primary hover:text-primary transition">
@@ -71,6 +124,7 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
   const [time, setTime] = useState(initial?.time ? String(initial.time) : "");
   const [servings, setServings] = useState(initial?.servings || 1);
   const [image, setImage] = useState(initial?.image || null);
+  const [imagePos, setImagePos] = useState(initial?.imagePos || "50% 50%");
   const [visibility, setVisibility] = useState(initial?.visibility || "family");
   const [chosen, setChosen] = useState(
     initial ? initial.ings.map((i) => ({ id: i.ingredient_id, amount: i.amount })) : []
@@ -118,6 +172,7 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
         time: time ? Number(time) : 0,
         servings,
         image,
+        imagePos: image ? imagePos : null,
         visibility,
         steps: cleanSteps,
         ings: validIngs.map((c) => ({ ingredient_id: c.id, amount: Number(c.amount) })),
@@ -136,7 +191,7 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
 
       {/* основное */}
       <div className="bg-surface rounded-xl border border-line p-4 mb-4 space-y-4">
-        <ImageInput value={image} onChange={setImage} variant="cover" />
+        <ImageInput value={image} onChange={setImage} variant="cover" pos={imagePos} onPosChange={setImagePos} />
         <div>
           <label className="block text-sm font-medium mb-1.5">Название</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, Куриный суп бабушки"
