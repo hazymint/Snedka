@@ -45,8 +45,8 @@ function ImageInput({ value, onChange, variant = "cover" }) {
     <div>
       <input ref={ref} type="file" accept="image/*" className="hidden" onChange={pick} />
       {value ? (
-        <div className="relative">
-          <img src={value} alt="" className="w-full h-48 object-cover rounded-lg border border-line" />
+        <div className="relative inline-block w-full">
+          <img src={value} alt="" className="w-full h-auto max-h-[26rem] object-contain rounded-lg border border-line bg-paper" />
           <button onClick={() => onChange(null)} className="absolute top-2 right-2 grid place-items-center w-8 h-8 rounded-full bg-black/60 text-white hover:bg-black/80"><X size={16} /></button>
         </div>
       ) : (

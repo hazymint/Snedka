@@ -168,7 +168,7 @@ export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, on
 
       <div className="mb-5"><Reactions r={recipe} onReact={onReact} size="lg" /></div>
 
-      {recipe.image && <img src={recipe.image} alt="" loading="lazy" decoding="async" onError={(e) => (e.currentTarget.style.display = "none")} className="w-full h-56 sm:h-64 object-cover rounded-xl border border-line mb-5" />}
+      {recipe.image && <img src={recipe.image} alt="" loading="lazy" decoding="async" onError={(e) => (e.currentTarget.style.display = "none")} className="w-full h-auto max-h-[30rem] object-contain rounded-xl border border-line bg-paper mb-5" />}
 
       <div className="bg-surface rounded-xl border border-line p-4 mb-5">
         <div className="flex items-center justify-between mb-3">
