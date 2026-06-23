@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Clock, Flame, Plus, ShoppingBasket, ArrowLeft, Minus, Pencil, Trash2, ThumbsUp, ThumbsDown, Lock, Globe, Dices, X } from "lucide-react";
-import { recipeKcal, fmtAmount, mealColor } from "./ui.js";
+import { recipeKcalPerServing, fmtAmount, mealColor } from "./ui.js";
 
 function WhatToEat({ onSurprise }) {
   const [open, setOpen] = useState(false);
@@ -104,9 +104,10 @@ export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope
                 <h3 className="font-serif text-lg leading-snug mb-3 group-hover:text-[#3F6F4B] transition">{r.name}</h3>
                 <div className="flex items-center gap-4 text-sm text-[#6B655A]">
                   <span className="flex items-center gap-1"><Clock size={14} /> {r.time || "—"} мин</span>
-                  <span className="flex items-center gap-1"><Flame size={14} /> ~{recipeKcal(r)} ккал</span>
+                  <span className="flex items-center gap-1"><Flame size={14} /> ~{recipeKcalPerServing(r)} ккал</span>
                   <span className="ml-auto text-xs">{r.ings.length} прод.</span>
                 </div>
+                {r.servings > 1 && <p className="mt-2 text-xs text-[#A8A192]">на {r.servings} порц.</p>}
               </button>
               <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-t border-[#DAD3C4]">
                 <Reactions r={r} onReact={onReact} />
@@ -123,9 +124,12 @@ export function RecipeList({ recipes, mealFilter, setMealFilter, scope, setScope
 }
 
 export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, onAddAll, onAddOne, onReact, onEdit, onDelete }) {
-  const [servings, setServings] = useState(1);
+  const base = recipe.servings || 1; // на сколько порций заданы количества в рецепте
+  const [servings, setServings] = useState(base);
   const [confirmDel, setConfirmDel] = useState(false);
-  const scaled = recipe.ings.map((i) => ({ ...i, amount: i.amount * servings }));
+  // При переходе к другому рецепту сбрасываем выбор порций на «родное» количество.
+  useEffect(() => { setServings(base); }, [recipe.id, base]);
+  const scaled = recipe.ings.map((i) => ({ ...i, amount: (i.amount * servings) / base }));
 
   return (
     <div>
@@ -159,7 +163,7 @@ export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, on
       <h1 className="font-serif text-3xl leading-tight mb-3">{recipe.name}</h1>
       <div className="flex items-center gap-5 text-sm text-[#6B655A] mb-4">
         <span className="flex items-center gap-1.5"><Clock size={15} /> {recipe.time || "—"} мин</span>
-        <span className="flex items-center gap-1.5"><Flame size={15} /> ~{recipeKcal(recipe)} ккал / порция</span>
+        <span className="flex items-center gap-1.5"><Flame size={15} /> ~{recipeKcalPerServing(recipe)} ккал / порция</span>
       </div>
 
       <div className="mb-5"><Reactions r={recipe} onReact={onReact} size="lg" /></div>
@@ -172,7 +176,7 @@ export function RecipeDetail({ recipe, surpriseMeal, onSurpriseAgain, onBack, on
           <div className="flex items-center gap-2 bg-[#F6F3EC] rounded-lg border border-[#DAD3C4] px-1">
             <button onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1} className="p-1.5 text-[#6B655A] hover:text-[#23201B] disabled:opacity-30"><Minus size={15} /></button>
             <span className="text-sm tabular-nums w-14 text-center">{servings} порц.</span>
-            <button onClick={() => setServings((s) => Math.min(12, s + 1))} className="p-1.5 text-[#6B655A] hover:text-[#23201B]"><Plus size={15} /></button>
+            <button onClick={() => setServings((s) => Math.min(99, s + 1))} className="p-1.5 text-[#6B655A] hover:text-[#23201B]"><Plus size={15} /></button>
           </div>
         </div>
 

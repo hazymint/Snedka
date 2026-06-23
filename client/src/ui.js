@@ -4,10 +4,16 @@ export const perForUnit = (u) => (u === "шт" || u === "зуб." ? "pc" : "100"
 export const defaultAmount = (per) => (per === "pc" ? 1 : 100);
 export const fmtAmount = (a) => (Number.isInteger(a) ? a : +Number(a).toFixed(1));
 
-export const recipeKcal = (r) =>
-  Math.round((r.ings || []).reduce((s, i) => {
+const totalKcal = (r) =>
+  (r.ings || []).reduce((s, i) => {
     return s + (i.per === "pc" ? (i.kcal || 0) * i.amount : ((i.kcal || 0) * i.amount) / 100);
-  }, 0));
+  }, 0);
+
+// Суммарная калорийность рецепта (всех порций).
+export const recipeKcal = (r) => Math.round(totalKcal(r));
+
+// Калорийность на одну порцию: количество ингредиентов задано на r.servings порций.
+export const recipeKcalPerServing = (r) => Math.round(totalKcal(r) / (r.servings || 1));
 
 const MEAL_COLORS = {
   "Завтрак": "bg-[#E8B23A]/15 text-[#9A6B12] border-[#E8B23A]/40",
