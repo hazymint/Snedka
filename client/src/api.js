@@ -55,6 +55,11 @@ export const api = {
   adminBan: (user_id) => req("/admin/ban", { method: "POST", body: { user_id } }),
   adminUnban: (user_id) => req("/admin/unban", { method: "POST", body: { user_id } }),
   adminRole: (user_id, role) => req("/admin/role", { method: "POST", body: { user_id, role } }),
+  adminStats: () => req("/admin/stats"),
+  adminLog: ({ action = "", limit = 50, offset = 0 } = {}) => {
+    const qs = new URLSearchParams({ limit, offset, ...(action ? { action } : {}) });
+    return req(`/admin/log?${qs}`);
+  },
 
   shopping: () => req("/shopping"),
   addShopping: (items) => req("/shopping", { method: "POST", body: { items } }),

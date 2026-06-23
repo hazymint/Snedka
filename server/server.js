@@ -119,9 +119,31 @@ const SECRET = process.env.JWT_SECRET || (() => {
 const sign = (user) => jwt.sign({ uid: user.id }, SECRET, { expiresIn: "30d" });
 
 function recordIp(userId, ip) {
+  db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(userId);
   if (!ip) return;
   db.prepare("INSERT OR IGNORE INTO user_ips (user_id, ip) VALUES (?, ?)").run(userId, ip);
   db.prepare("UPDATE users SET last_ip = ? WHERE id = ?").run(ip, userId);
+}
+
+// Запись в журнал действий. Имена сохраняем «снимком», чтобы запись пережила
+// переименование/удаление пользователя. meta — произвольный объект (сериализуем в JSON).
+const logStmt = db.prepare(
+  "INSERT INTO audit_log (action, actor_id, actor_name, target_id, target_name, meta, ip) VALUES (?, ?, ?, ?, ?, ?, ?)"
+);
+function logEvent(action, { actor = null, target = null, meta = null, ip = null } = {}) {
+  try {
+    logStmt.run(
+      action,
+      actor?.id ?? null,
+      actor?.name ?? null,
+      target?.id ?? null,
+      target?.name ?? null,
+      meta && Object.keys(meta).length ? JSON.stringify(meta) : null,
+      ip ?? null
+    );
+  } catch {
+    // журнал не должен ломать основной запрос
+  }
 }
 
 // ── middleware ──
@@ -154,11 +176,13 @@ function canModerate(actor, target) {
 }
 
 function canManageRecipe(user, r) {
-  if (r.is_base) return false;
+  const isStaff = user.role === "admin" || user.role === "moderator";
+  // Базовый каталог (предустановленные рецепты) могут править админ и модератор.
+  if (r.is_base) return isStaff;
   if (r.family_id === user.family_id) return true; // своя семья
   // Модерация распространяется только на публичный контент: приватные рецепты чужих
   // семей недоступны staff (их не видно в ленте, и менять/удалять их по id нельзя).
-  return (user.role === "admin" || user.role === "moderator") && r.visibility === "public";
+  return isStaff && r.visibility === "public";
 }
 
 // ── helpers ──
@@ -244,16 +268,23 @@ app.post("/api/auth/register", (req, res) => {
   })();
 
   recordIp(user.id, req.ip);
+  logEvent("register", { actor: user, ip: req.ip });
   res.json({ token: sign(user), ...mePayload(user) });
 });
 
 app.post("/api/auth/login", (req, res) => {
   const { email, password } = req.body || {};
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get((email || "").toLowerCase());
-  if (!user || !bcrypt.compareSync(password || "", user.password_hash))
+  if (!user || !bcrypt.compareSync(password || "", user.password_hash)) {
+    logEvent("login_fail", { meta: { email: (email || "").toLowerCase().slice(0, 120) }, ip: req.ip });
     return res.status(401).json({ error: "Неверный email или пароль" });
-  if (user.banned) return res.status(403).json({ error: "Аккаунт заблокирован" });
+  }
+  if (user.banned) {
+    logEvent("login_blocked", { actor: user, ip: req.ip });
+    return res.status(403).json({ error: "Аккаунт заблокирован" });
+  }
   recordIp(user.id, req.ip);
+  logEvent("login", { actor: user, ip: req.ip });
   res.json({ token: sign(user), ...mePayload(user) });
 });
 
@@ -280,6 +311,8 @@ app.post("/api/family/join", auth, (req, res) => {
   if (!family) return res.status(404).json({ error: "Семья с таким кодом не найдена" });
   db.prepare("UPDATE users SET family_id = ? WHERE id = ?").run(family.id, req.user.id);
   const user = db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(req.user.id);
+  const fam = db.prepare("SELECT name FROM families WHERE id = ?").get(family.id);
+  logEvent("family_join", { actor: req.user, target: { id: family.id, name: fam?.name }, ip: req.ip });
   res.json(mePayload(user));
 });
 
@@ -288,6 +321,7 @@ app.post("/api/family/new", auth, (req, res) => {
   const familyId = createFamily(name, req.user.id);
   db.prepare("UPDATE users SET family_id = ? WHERE id = ?").run(familyId, req.user.id);
   const user = db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(req.user.id);
+  logEvent("family_create", { actor: req.user, target: { id: familyId, name }, ip: req.ip });
   res.json(mePayload(user));
 });
 
@@ -344,6 +378,7 @@ app.post("/api/recipes", auth, (req, res) => {
     saveRecipeIngredients(rid, ings);
     return rid;
   })();
+  logEvent("recipe_create", { actor: req.user, target: { id, name: name.trim() }, ip: req.ip });
   res.json(loadRecipes(req.user).find((r) => r.id === id));
 });
 
@@ -363,6 +398,9 @@ app.put("/api/recipes/:id", auth, (req, res) => {
   // Удаляем картинки, которых больше нет в рецепте (и на которые никто не ссылается).
   const newImages = new Set(recipeImageUrls({ image, steps: JSON.stringify(steps || []) }));
   removeOrphanUploads(oldImages.filter((u) => !newImages.has(u)));
+  // Помечаем правку чужого/базового рецепта как модерацию — это видно в журнале.
+  const moderated = recipe.is_base || recipe.family_id !== req.user.family_id;
+  logEvent("recipe_update", { actor: req.user, target: { id, name: name.trim() }, meta: moderated ? { moderated: true } : null, ip: req.ip });
   res.json(loadRecipes(req.user).find((r) => r.id === id));
 });
 
@@ -373,6 +411,8 @@ app.delete("/api/recipes/:id", auth, (req, res) => {
   const images = recipeImageUrls(recipe);
   db.prepare("DELETE FROM recipes WHERE id = ?").run(id);
   removeOrphanUploads(images);
+  const moderated = recipe.is_base || recipe.family_id !== req.user.family_id;
+  logEvent("recipe_delete", { actor: req.user, target: { id, name: recipe.name }, meta: moderated ? { moderated: true } : null, ip: req.ip });
   res.json({ ok: true });
 });
 
@@ -399,10 +439,85 @@ app.post("/api/recipes/:id/react", auth, (req, res) => {
 // ──────────────────────────  ADMIN  ──────────────────────────
 app.get("/api/admin/users", auth, requireRole("admin", "moderator"), (req, res) => {
   const users = db.prepare(
-    `SELECT u.id, u.name, u.email, u.role, u.banned, u.last_ip, f.name AS family
+    `SELECT u.id, u.name, u.email, u.role, u.banned, u.last_ip, u.last_seen, u.created_at,
+            f.name AS family,
+            (SELECT COUNT(*) FROM user_ips ui WHERE ui.user_id = u.id) AS ip_count,
+            (SELECT COUNT(*) FROM recipes r WHERE r.author_id = u.id) AS recipe_count
      FROM users u LEFT JOIN families f ON f.id = u.family_id ORDER BY u.id`
   ).all();
   res.json({ users, me: { id: req.user.id, role: req.user.role } });
+});
+
+// ── Сводка для дашборда: счётчики, активность, ряды по дням ──
+app.get("/api/admin/stats", auth, requireRole("admin", "moderator"), (req, res) => {
+  const one = (sql, ...args) => db.prepare(sql).get(...args);
+
+  const totals = {
+    users: one("SELECT COUNT(*) c FROM users").c,
+    families: one("SELECT COUNT(*) c FROM families").c,
+    recipes: one("SELECT COUNT(*) c FROM recipes WHERE is_base = 0").c,
+    baseRecipes: one("SELECT COUNT(*) c FROM recipes WHERE is_base = 1").c,
+    ingredients: one("SELECT COUNT(*) c FROM ingredients WHERE is_base = 0").c,
+    banned: one("SELECT COUNT(*) c FROM users WHERE banned = 1").c,
+    bannedIps: one("SELECT COUNT(DISTINCT ip) c FROM banned_ips").c,
+  };
+
+  const active = {
+    day: one("SELECT COUNT(*) c FROM users WHERE last_seen >= datetime('now','-1 day')").c,
+    week: one("SELECT COUNT(*) c FROM users WHERE last_seen >= datetime('now','-7 days')").c,
+    month: one("SELECT COUNT(*) c FROM users WHERE last_seen >= datetime('now','-30 days')").c,
+  };
+
+  // Ряд по дням за N суток — заполняем нулями отсутствующие даты.
+  const DAYS = 14;
+  const series = (rows) => {
+    const map = Object.fromEntries(rows.map((r) => [r.d, r.c]));
+    const out = [];
+    for (let i = DAYS - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+      out.push({ date: d, count: map[d] || 0 });
+    }
+    return out;
+  };
+  const regRows = db.prepare(
+    "SELECT date(created_at) d, COUNT(*) c FROM users WHERE created_at >= date('now', ?) GROUP BY d"
+  ).all(`-${DAYS - 1} days`);
+  const loginRows = db.prepare(
+    "SELECT date(created_at) d, COUNT(*) c FROM audit_log WHERE action = 'login' AND created_at >= date('now', ?) GROUP BY d"
+  ).all(`-${DAYS - 1} days`);
+
+  const actionCounts = db.prepare(
+    "SELECT action, COUNT(*) c FROM audit_log GROUP BY action ORDER BY c DESC"
+  ).all();
+
+  res.json({
+    totals,
+    active,
+    registrations: series(regRows),
+    logins: series(loginRows),
+    actionCounts,
+  });
+});
+
+// ── Журнал действий с фильтром и пагинацией ──
+app.get("/api/admin/log", auth, requireRole("admin", "moderator"), (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  const action = typeof req.query.action === "string" ? req.query.action : "";
+
+  const where = action ? "WHERE action = ?" : "";
+  const args = action ? [action] : [];
+  const total = db.prepare(`SELECT COUNT(*) c FROM audit_log ${where}`).get(...args).c;
+  const rows = db.prepare(
+    `SELECT id, action, actor_id, actor_name, target_id, target_name, meta, ip, created_at
+     FROM audit_log ${where} ORDER BY id DESC LIMIT ? OFFSET ?`
+  ).all(...args, limit, offset);
+
+  const entries = rows.map((r) => ({
+    ...r,
+    meta: r.meta ? JSON.parse(r.meta) : null,
+  }));
+  res.json({ entries, total, limit, offset });
 });
 
 app.post("/api/admin/ban", auth, requireRole("admin", "moderator"), (req, res) => {
@@ -419,10 +534,13 @@ app.post("/api/admin/ban", auth, requireRole("admin", "moderator"), (req, res) =
   const sharedWithActive = db.prepare(
     "SELECT 1 FROM user_ips ui JOIN users u ON u.id = ui.user_id WHERE ui.ip = ? AND u.id != ? AND u.banned = 0 LIMIT 1"
   );
+  let bannedIpCount = 0;
   for (const ip of new Set(ips)) {
     if (!ip || sharedWithActive.get(ip, target.id)) continue;
     ins.run(ip, target.id);
+    bannedIpCount++;
   }
+  logEvent("ban", { actor: req.user, target, meta: { ips: bannedIpCount }, ip: req.ip });
   res.json({ ok: true });
 });
 
@@ -432,6 +550,7 @@ app.post("/api/admin/unban", auth, requireRole("admin", "moderator"), (req, res)
   if (!canModerate(req.user, target)) return res.status(403).json({ error: "Недостаточно прав" });
   db.prepare("UPDATE users SET banned = 0 WHERE id = ?").run(target.id);
   db.prepare("DELETE FROM banned_ips WHERE user_id = ?").run(target.id);
+  logEvent("unban", { actor: req.user, target, ip: req.ip });
   res.json({ ok: true });
 });
 
@@ -442,6 +561,7 @@ app.post("/api/admin/role", auth, requireRole("admin"), (req, res) => {
   if (target.id === req.user.id) return res.status(403).json({ error: "Нельзя менять свою роль" });
   if (!["user", "moderator", "admin"].includes(role)) return res.status(400).json({ error: "Неизвестная роль" });
   db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, target.id);
+  logEvent("role_change", { actor: req.user, target, meta: { from: target.role, to: role }, ip: req.ip });
   res.json({ ok: true });
 });
 

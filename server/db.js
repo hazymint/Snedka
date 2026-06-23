@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT DEFAULT 'user',
   banned INTEGER DEFAULT 0,
   last_ip TEXT,
+  last_seen TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -92,6 +93,23 @@ CREATE TABLE IF NOT EXISTS shopping_items (
   added_by INTEGER REFERENCES users(id),
   UNIQUE(family_id, ingredient_id)
 );
+
+-- Журнал действий: регистрации, входы, баны, смены ролей, операции с рецептами и т.д.
+-- Имена актора/цели денормализованы, чтобы запись оставалась читаемой даже после
+-- удаления или переименования пользователя.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  action TEXT NOT NULL,
+  actor_id INTEGER,
+  actor_name TEXT,
+  target_id INTEGER,
+  target_name TEXT,
+  meta TEXT,
+  ip TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 `);
 
 // ── Миграции для ранее созданных БД ──
@@ -103,6 +121,7 @@ if (!has("recipes", "servings")) db.exec("ALTER TABLE recipes ADD COLUMN serving
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
 if (!has("users", "banned")) db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0");
 if (!has("users", "last_ip")) db.exec("ALTER TABLE users ADD COLUMN last_ip TEXT");
+if (!has("users", "last_seen")) db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT");
 
 // banned_ips: переход со старого ключа (ip) на составной (ip, user_id) — чтобы разбан
 // удалял только записи конкретного пользователя и не оставлял общий IP заблокированным.
