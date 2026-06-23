@@ -44,6 +44,8 @@ export const api = {
 
   ingredients: () => req("/ingredients"),
   addIngredient: (b) => req("/ingredients", { method: "POST", body: b }),
+  updateIngredient: (id, b) => req(`/ingredients/${id}`, { method: "PUT", body: b }),
+  deleteIngredient: (id) => req(`/ingredients/${id}`, { method: "DELETE" }),
 
   recipes: () => req("/recipes"),
   createRecipe: (b) => req("/recipes", { method: "POST", body: b }),
@@ -56,6 +58,7 @@ export const api = {
   adminUnban: (user_id) => req("/admin/unban", { method: "POST", body: { user_id } }),
   adminRole: (user_id, role) => req("/admin/role", { method: "POST", body: { user_id, role } }),
   adminStats: () => req("/admin/stats"),
+  adminProducts: () => req("/admin/products"),
   adminLog: ({ action = "", limit = 50, offset = 0 } = {}) => {
     const qs = new URLSearchParams({ limit, offset, ...(action ? { action } : {}) });
     return req(`/admin/log?${qs}`);

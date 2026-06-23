@@ -95,15 +95,18 @@ export const ACTION_LABEL = {
   recipe_create: "Создан рецепт",
   recipe_update: "Изменён рецепт",
   recipe_delete: "Удалён рецепт",
+  product_create: "Создан продукт",
+  product_update: "Изменён продукт",
+  product_delete: "Удалён продукт",
   family_create: "Создана семья",
   family_join: "Вход в семью",
 };
 
 // Цвет-тон для значка события.
 export const actionTone = (a) => {
-  if (a === "ban" || a === "recipe_delete" || a === "login_fail" || a === "login_blocked")
+  if (a === "ban" || a === "recipe_delete" || a === "product_delete" || a === "login_fail" || a === "login_blocked")
     return "bg-danger/12 text-danger border-danger/30";
-  if (a === "register" || a === "recipe_create" || a === "family_create")
+  if (a === "register" || a === "recipe_create" || a === "product_create" || a === "family_create")
     return "bg-mint/15 text-primary-800 border-primary/30";
   if (a === "role_change" || a === "unban")
     return "bg-violet/12 text-violet-700 border-violet/30";
