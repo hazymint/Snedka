@@ -151,7 +151,7 @@ export default function App() {
       <main className="max-w-3xl mx-auto px-4 py-6">
         {sub?.form && (
           <RecipeForm
-            catalog={catalog} groups={groups} initial={editRecipe}
+            catalog={catalog} groups={groups} initial={editRecipe} me={me}
             onIngredientCreated={(row) => setCatalog((c) => [...c, row].sort((a, b) => a.name.localeCompare(b.name)))}
             onSaved={async (saved) => { await reloadRecipes(); setSub({ detail: saved.id }); showFlash(editRecipe ? "Рецепт обновлён" : "Рецепт сохранён"); }}
             onCancel={() => setSub(openRecipe ? { detail: openRecipe.id } : null)}

@@ -116,8 +116,9 @@ function ImageInput({ value, onChange, variant = "cover", pos, onPosChange }) {
   );
 }
 
-export default function RecipeForm({ catalog, groups, initial, onIngredientCreated, onSaved, onCancel }) {
+export default function RecipeForm({ catalog, groups, initial, me, onIngredientCreated, onSaved, onCancel }) {
   const byId = useMemo(() => Object.fromEntries(catalog.map((i) => [i.id, i])), [catalog]);
+  const isStaff = me?.user?.role === "admin" || me?.user?.role === "moderator";
 
   const [name, setName] = useState(initial?.name || "");
   const [meal, setMeal] = useState(initial?.meal || "Обед");
@@ -239,6 +240,12 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
               <span><span className="block text-sm font-medium">Публичный</span><span className="block text-xs text-muted">Виден всем пользователям</span></span>
             </button>
           </div>
+          {visibility === "public" && !isStaff && (
+            <p className="mt-2 text-xs text-muted-soft flex items-start gap-1.5">
+              <Lock size={13} className="mt-0.5 shrink-0" />
+              Новые продукты для публичных рецептов добавляют только администраторы и модераторы. Выбирайте из каталога — или сделайте рецепт семейным, чтобы создавать свои продукты.
+            </p>
+          )}
         </div>
       </div>
 
@@ -321,12 +328,17 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
         )}
 
         <div className="mt-3">
-          {!showNewIng ? (
+          {visibility === "public" && !isStaff ? (
+            <p className="text-xs text-muted-soft flex items-start gap-1.5">
+              <Lock size={13} className="mt-0.5 shrink-0" />
+              Создавать продукты для публичных рецептов могут только администраторы и модераторы.
+            </p>
+          ) : !showNewIng ? (
             <button onClick={() => setShowNewIng(true)} className="flex items-center gap-1.5 text-sm text-primary hover:underline"><Plus size={15} /> Создать новый продукт</button>
           ) : (
-            <NewIngredientForm groups={groups} onCancel={() => setShowNewIng(false)}
+            <NewIngredientForm groups={groups} isPublic={visibility === "public"} onCancel={() => setShowNewIng(false)}
               onCreate={async (def) => {
-                const row = await api.addIngredient(def);
+                const row = await api.addIngredient({ ...def, visibility });
                 onIngredientCreated(row);
                 addChosen(row.id);
                 setShowNewIng(false);
@@ -366,7 +378,7 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
   );
 }
 
-function NewIngredientForm({ groups, onCreate, onCancel }) {
+function NewIngredientForm({ groups, isPublic, onCreate, onCancel }) {
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("г");
   const [group, setGroup] = useState(groups[0]);
@@ -388,6 +400,11 @@ function NewIngredientForm({ groups, onCreate, onCancel }) {
         <span className="text-sm font-medium">Новый продукт</span>
         <button onClick={onCancel} className="text-line-strong hover:text-ink"><X size={16} /></button>
       </div>
+      <p className="text-xs text-muted flex items-center gap-1.5">
+        {isPublic
+          ? <><Globe size={13} className="shrink-0" /> Публичный продукт — будет доступен всем пользователям.</>
+          : <><Lock size={13} className="shrink-0" /> Семейный продукт — будет доступен только вашей семье.</>}
+      </p>
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Название продукта"
         className="w-full px-3 py-2 rounded-lg border border-line bg-surface text-sm focus:outline-none focus:border-primary" />
       <div className="flex gap-2">

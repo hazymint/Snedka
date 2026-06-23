@@ -352,13 +352,19 @@ app.get("/api/ingredients", auth, (req, res) => {
 });
 
 app.post("/api/ingredients", auth, (req, res) => {
-  const { name, unit, group, kcal, per } = req.body || {};
+  const { name, unit, group, kcal, per, visibility } = req.body || {};
   if (!name || !unit || !group) return res.status(400).json({ error: "Укажите название, единицу и отдел" });
+  const isStaff = req.user.role === "admin" || req.user.role === "moderator";
+  // Публичный продукт виден всем семьям — его создают только админ и модератор.
+  // Обычный пользователь добавляет продукты только в каталог своей семьи.
+  const isPublic = visibility === "public";
+  if (isPublic && !isStaff) return res.status(403).json({ error: "Создавать продукты для публичных рецептов могут только администраторы и модераторы" });
+  const familyId = isPublic ? null : req.user.family_id;
   const id = db.prepare(
-    "INSERT INTO ingredients (family_id, name, unit, grp, kcal, per, is_base) VALUES (?, ?, ?, ?, ?, ?, 0)"
-  ).run(req.user.family_id, name.trim(), unit, group, Number(kcal) || 0, per === "pc" ? "pc" : "100").lastInsertRowid;
-  logEvent("product_create", { actor: req.user, target: { id, name: name.trim() }, ip: req.ip });
-  res.json(db.prepare("SELECT id, name, unit, grp AS \"group\", kcal, per, 1 AS custom FROM ingredients WHERE id = ?").get(id));
+    "INSERT INTO ingredients (family_id, name, unit, grp, kcal, per, is_base) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run(familyId, name.trim(), unit, group, Number(kcal) || 0, per === "pc" ? "pc" : "100", isPublic ? 1 : 0).lastInsertRowid;
+  logEvent("product_create", { actor: req.user, target: { id, name: name.trim() }, meta: isPublic ? { public: true } : null, ip: req.ip });
+  res.json(db.prepare("SELECT id, name, unit, grp AS \"group\", kcal, per, (family_id IS NOT NULL) AS custom FROM ingredients WHERE id = ?").get(id));
 });
 
 const cleanPer = (p) => (p === "pc" ? "pc" : "100");
