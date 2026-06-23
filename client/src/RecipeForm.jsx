@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
-import { ArrowLeft, Plus, X, Search, Save, LayoutGrid, ChevronDown, ImagePlus, Loader2, Lock, Globe } from "lucide-react";
+import { ArrowLeft, Plus, X, Search, Save, LayoutGrid, ChevronDown, ImagePlus, Loader2, Lock, Globe, Minus } from "lucide-react";
 import { api } from "./api.js";
 import { MEALS, UNITS, perForUnit, defaultAmount, mealColor } from "./ui.js";
 
@@ -69,6 +69,7 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
   const [name, setName] = useState(initial?.name || "");
   const [meal, setMeal] = useState(initial?.meal || "Обед");
   const [time, setTime] = useState(initial?.time ? String(initial.time) : "");
+  const [servings, setServings] = useState(initial?.servings || 1);
   const [image, setImage] = useState(initial?.image || null);
   const [visibility, setVisibility] = useState(initial?.visibility || "family");
   const [chosen, setChosen] = useState(
@@ -115,6 +116,7 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
         name: name.trim(),
         meal,
         time: time ? Number(time) : 0,
+        servings,
         image,
         visibility,
         steps: cleanSteps,
@@ -155,7 +157,18 @@ export default function RecipeForm({ catalog, groups, initial, onIngredientCreat
             <input value={time} onChange={(e) => setTime(e.target.value.replace(/\D/g, ""))} inputMode="numeric" placeholder="30"
               className="w-full px-3 py-2 rounded-lg border border-[#DAD3C4] bg-[#F6F3EC] focus:outline-none focus:border-[#3F6F4B]" />
           </div>
+          <div className="w-40">
+            <label className="block text-sm font-medium mb-1.5">Порций</label>
+            <div className="flex items-center justify-between gap-1 px-1 h-[42px] rounded-lg border border-[#DAD3C4] bg-[#F6F3EC]">
+              <button type="button" onClick={() => setServings((s) => Math.max(1, s - 1))} disabled={servings <= 1}
+                className="p-1.5 text-[#6B655A] hover:text-[#23201B] disabled:opacity-30"><Minus size={16} /></button>
+              <span className="text-sm tabular-nums">{servings}</span>
+              <button type="button" onClick={() => setServings((s) => Math.min(99, s + 1))}
+                className="p-1.5 text-[#6B655A] hover:text-[#23201B]"><Plus size={16} /></button>
+            </div>
+          </div>
         </div>
+        <p className="text-xs text-[#A8A192] -mt-2">Укажите количество ингредиентов на это число порций — в рецепте можно будет пересчитать на любое количество.</p>
 
         <div>
           <label className="block text-sm font-medium mb-1.5">Кто видит рецепт</label>

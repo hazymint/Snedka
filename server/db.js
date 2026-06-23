@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS recipes (
   name TEXT NOT NULL,
   meal TEXT NOT NULL,
   time INTEGER DEFAULT 0,
+  servings INTEGER DEFAULT 1,
   steps TEXT DEFAULT '[]',
   image TEXT,
   visibility TEXT DEFAULT 'family',
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS shopping_items (
 const has = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
 if (!has("recipes", "image")) db.exec("ALTER TABLE recipes ADD COLUMN image TEXT");
 if (!has("recipes", "visibility")) db.exec("ALTER TABLE recipes ADD COLUMN visibility TEXT DEFAULT 'family'");
+if (!has("recipes", "servings")) db.exec("ALTER TABLE recipes ADD COLUMN servings INTEGER DEFAULT 1");
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
 if (!has("users", "banned")) db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0");
 if (!has("users", "last_ip")) db.exec("ALTER TABLE users ADD COLUMN last_ip TEXT");
