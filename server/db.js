@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS recipes (
   servings INTEGER DEFAULT 1,
   steps TEXT DEFAULT '[]',
   image TEXT,
+  image_pos TEXT,
   visibility TEXT DEFAULT 'family',
   is_base INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now'))
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS shopping_items (
 // ── Миграции для ранее созданных БД ──
 const has = (table, col) => db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
 if (!has("recipes", "image")) db.exec("ALTER TABLE recipes ADD COLUMN image TEXT");
+if (!has("recipes", "image_pos")) db.exec("ALTER TABLE recipes ADD COLUMN image_pos TEXT");
 if (!has("recipes", "visibility")) db.exec("ALTER TABLE recipes ADD COLUMN visibility TEXT DEFAULT 'family'");
 if (!has("recipes", "servings")) db.exec("ALTER TABLE recipes ADD COLUMN servings INTEGER DEFAULT 1");
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
