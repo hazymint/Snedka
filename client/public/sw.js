@@ -1,5 +1,7 @@
 // Service worker: оффлайн-оболочка. API и загруженные файлы НЕ кэшируются.
-const CACHE = "menu-v1";
+// ВАЖНО: при значимых изменениях оболочки поднимай версию кэша (menu-vN → menu-v(N+1)),
+// иначе у уже установленных PWA в кэше останется старый index.html.
+const CACHE = "menu-v2";
 const SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (e) => {
@@ -22,9 +24,20 @@ self.addEventListener("fetch", (e) => {
   // Никогда не кэшируем динамику — иначе список и рецепты "застынут"
   if (url.pathname.startsWith("/api") || url.pathname.startsWith("/uploads")) return;
 
-  // Навигация: сеть, при оффлайне — оболочка из кэша
+  // Навигация: сеть-первой, при успехе дозаписываем свежую оболочку в кэш,
+  // при оффлайне — отдаём оболочку из кэша
   if (request.mode === "navigate") {
-    e.respondWith(fetch(request).catch(() => caches.match("/index.html")));
+    e.respondWith(
+      fetch(request)
+        .then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put("/index.html", copy));
+          }
+          return res;
+        })
+        .catch(() => caches.match("/index.html"))
+    );
     return;
   }
 
