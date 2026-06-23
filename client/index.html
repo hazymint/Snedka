@@ -12,9 +12,104 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Снедка" />
+
+    <!-- Тема: применяем класс до отрисовки, чтобы не было «вспышки» светлой темы -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem("theme") || "system";
+          var dark =
+            pref === "dark" ||
+            (pref === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", dark ? "#181714" : "#3F6F4B");
+        } catch (e) {}
+      })();
+    </script>
+
+    <style>
+      :root {
+        --c-paper: 246 243 236;
+        --c-ink: 35 32 27;
+        --c-surface: 255 255 255;
+        --c-line-soft: 238 233 221;
+        --c-line: 218 211 196;
+        --c-line-strong: 196 188 169;
+        --c-muted: 107 101 90;
+        --c-ink-soft: 74 69 60;
+        --c-muted-soft: 168 161 146;
+        --c-primary: 63 111 75;
+        --c-primary-700: 52 94 63;
+        --c-primary-800: 47 86 56;
+        --c-mint: 127 185 140;
+        --c-danger: 194 74 56;
+        --c-danger-700: 168 62 46;
+        --c-accent: 232 178 58;
+        --c-accent-700: 154 107 18;
+        --c-violet: 122 91 168;
+        --c-violet-700: 91 65 133;
+      }
+      html.dark {
+        --c-paper: 24 23 20;
+        --c-ink: 242 238 230;
+        --c-surface: 38 36 31;
+        --c-line-soft: 48 45 39;
+        --c-line: 60 56 48;
+        --c-line-strong: 78 73 62;
+        --c-muted: 165 159 147;
+        --c-ink-soft: 214 208 196;
+        --c-muted-soft: 120 114 103;
+        --c-primary: 110 176 126;
+        --c-primary-700: 90 154 108;
+        --c-primary-800: 150 200 162;
+        --c-mint: 127 185 140;
+        --c-danger: 224 108 86;
+        --c-danger-700: 200 90 70;
+        --c-accent: 232 178 58;
+        --c-accent-700: 224 170 70;
+        --c-violet: 162 134 204;
+        --c-violet-700: 188 165 222;
+      }
+      html { background-color: rgb(var(--c-paper)); }
+      html.dark { color-scheme: dark; }
+    </style>
+
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      const cssVar = (name) => `rgb(var(${name}) / <alpha-value>)`;
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              paper: cssVar("--c-paper"),
+              ink: cssVar("--c-ink"),
+              "ink-soft": cssVar("--c-ink-soft"),
+              surface: cssVar("--c-surface"),
+              "line-soft": cssVar("--c-line-soft"),
+              line: cssVar("--c-line"),
+              "line-strong": cssVar("--c-line-strong"),
+              muted: cssVar("--c-muted"),
+              "muted-soft": cssVar("--c-muted-soft"),
+              primary: cssVar("--c-primary"),
+              "primary-700": cssVar("--c-primary-700"),
+              "primary-800": cssVar("--c-primary-800"),
+              mint: cssVar("--c-mint"),
+              danger: cssVar("--c-danger"),
+              "danger-700": cssVar("--c-danger-700"),
+              accent: cssVar("--c-accent"),
+              "accent-700": cssVar("--c-accent-700"),
+              violet: cssVar("--c-violet"),
+              "violet-700": cssVar("--c-violet-700"),
+            },
+          },
+        },
+      };
+    </script>
   </head>
-  <body class="bg-[#F6F3EC]">
+  <body class="bg-paper">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

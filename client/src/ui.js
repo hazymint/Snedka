@@ -16,10 +16,10 @@ export const recipeKcal = (r) => Math.round(totalKcal(r));
 export const recipeKcalPerServing = (r) => Math.round(totalKcal(r) / (r.servings || 1));
 
 const MEAL_COLORS = {
-  "Завтрак": "bg-[#E8B23A]/15 text-[#9A6B12] border-[#E8B23A]/40",
-  "Обед": "bg-[#3F6F4B]/12 text-[#2F5638] border-[#3F6F4B]/35",
-  "Ужин": "bg-[#7A5BA8]/12 text-[#5B4185] border-[#7A5BA8]/35",
-  "Другое": "bg-[#6B655A]/12 text-[#4A453C] border-[#6B655A]/35",
+  "Завтрак": "bg-accent/15 text-accent-700 border-accent/40",
+  "Обед": "bg-primary/12 text-primary-800 border-primary/35",
+  "Ужин": "bg-violet/12 text-violet-700 border-violet/35",
+  "Другое": "bg-muted/12 text-ink-soft border-muted/35",
 };
 export const mealColor = (m) => MEAL_COLORS[m] || MEAL_COLORS["Другое"];
 
@@ -55,7 +55,7 @@ export async function downscaleImage(file, maxDim = 1600, quality = 0.82) {
 export const ROLE_LABEL = { admin: "Админ", moderator: "Модератор", user: "Пользователь" };
 export const roleBadge = (r) =>
   r === "admin"
-    ? "bg-[#C24A38]/12 text-[#C24A38] border-[#C24A38]/35"
+    ? "bg-danger/12 text-danger border-danger/35"
     : r === "moderator"
-    ? "bg-[#7A5BA8]/12 text-[#5B4185] border-[#7A5BA8]/35"
-    : "bg-[#6B655A]/12 text-[#4A453C] border-[#6B655A]/30";
+    ? "bg-violet/12 text-violet-700 border-violet/35"
+    : "bg-muted/12 text-ink-soft border-muted/30";
