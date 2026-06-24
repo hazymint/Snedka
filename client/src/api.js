@@ -4,8 +4,29 @@ const TOKEN_KEY = "menu_token";
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY));
 
+// Сетевые сбои fetch приходят как TypeError с непонятным пользователю текстом
+// («Load failed» в Safari, «Failed to fetch» в Chrome). Оборачиваем запрос таймаутом
+// и переводим любой сетевой провал в понятное сообщение, чтобы на экране входа и в
+// интерфейсе не светилось сырое «Load failed».
+const NETWORK_ERROR = "Нет связи с сервером. Проверьте интернет и повторите.";
+const REQUEST_TIMEOUT = 15000;
+
+async function fetchWithTimeout(url, opts = {}, timeout = REQUEST_TIMEOUT) {
+  // Используем переданный сигнал, если он есть; иначе свой таймер.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } catch (e) {
+    // AbortError (таймаут) и TypeError (обрыв сети) — оба показываем как проблему связи.
+    throw new Error(NETWORK_ERROR);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function req(path, { method = "GET", body } = {}) {
-  const res = await fetch("/api" + path, {
+  const res = await fetchWithTimeout("/api" + path, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -28,11 +49,11 @@ export const api = {
     const fd = new FormData();
     fd.append("image", blob, "upload.webp");
     fd.append("variant", variant);
-    const res = await fetch("/api/uploads", {
+    const res = await fetchWithTimeout("/api/uploads", {
       method: "POST",
       headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
       body: fd,
-    });
+    }, 60000); // аплоад на мобильном канале медленнее — даём больше времени
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Ошибка загрузки");
     return data; // { url, thumb }
