@@ -142,6 +142,25 @@ if (!has("users", "last_seen")) db.exec("ALTER TABLE users ADD COLUMN last_seen 
   }
 }
 
+// Восстановление обложек базовых рецептов после отката PR #17.
+// PR #17 при старте сервера переписал `image` базовых рецептов с исходных ссылок на
+// `/seed-images/...`; затем PR #17 был отозван (PR #19/#20), но откат кода не вернул
+// данные — в БД остались мёртвые `/seed-images/...`. Возвращаем ссылки из seed-data
+// для строк, всё ещё указывающих на `/seed-images`. Идемпотентно: после восстановления
+// совпадений нет, на последующих стартах — no-op.
+{
+  const upd = db.prepare(
+    "UPDATE recipes SET image = ? WHERE is_base = 1 AND name = ? AND image LIKE '/seed-images/%'"
+  );
+  let restored = 0;
+  db.transaction(() => {
+    for (const r of RECIPES) {
+      if (r.image) restored += upd.run(r.image, r.name).changes;
+    }
+  })();
+  if (restored) console.log(`Восстановлены обложки базовых рецептов после отката PR #17: ${restored}.`);
+}
+
 // ── Идемпотентный досев базового каталога ──
 // Запускается при каждом старте: добавляет недостающие базовые продукты и рецепты
 // (по имени), не трогая существующие записи и пользовательские данные. Так каталог
