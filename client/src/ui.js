@@ -23,10 +23,9 @@ const MEAL_COLORS = {
 };
 export const mealColor = (m) => MEAL_COLORS[m] || MEAL_COLORS["Другое"];
 
-// URL лёгкой миниатюры: для локальных файлов (загрузки и обложки базовых рецептов)
-// она лежит рядом с основным файлом — `…_thumb.webp`.
+// URL лёгкой миниатюры: для локальных загрузок она лежит рядом с основным файлом.
 export const thumbUrl = (url) =>
-  url && (url.startsWith("/uploads/") || url.startsWith("/seed-images/")) && url.endsWith(".webp")
+  url && url.startsWith("/uploads/") && url.endsWith(".webp")
     ? url.replace(/\.webp$/, "_thumb.webp")
     : url;
 
