@@ -23,6 +23,9 @@ const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin ? { origin: corsOrigin.split(",").map((s) => s.trim()).filter(Boolean) } : {}));
 app.use(express.json());
 app.use("/uploads", express.static(UPLOAD_DIR, { maxAge: "7d" }));
+// Обложки базовых рецептов: лежат в репозитории, раздаются с собственного origin
+// (без обращений к Wikimedia). Контент неизменяем — кэшируем надолго.
+app.use("/seed-images", express.static(path.join(__dirname, "seed-images"), { maxAge: "30d", immutable: true }));
 
 // ── Блокировка по IP (бан по нику = бан по IP) ──
 app.use((req, res, next) => {

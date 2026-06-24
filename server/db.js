@@ -142,6 +142,24 @@ if (!has("users", "last_seen")) db.exec("ALTER TABLE users ADD COLUMN last_seen 
   }
 }
 
+// Перенос обложек базовых рецептов с внешнего хоста (commons.wikimedia.org) на
+// локальные файлы (`/seed-images/...`). Внешний хост в ряде сетей душится/висит, из-за
+// чего страдала загрузка всего сайта. Трогаем только записи, всё ещё ссылающиеся на
+// Wikimedia, — пользовательские загрузки и правки админов остаются нетронутыми.
+{
+  const upd = db.prepare(
+    "UPDATE recipes SET image = ? WHERE is_base = 1 AND name = ? AND image LIKE 'https://commons.wikimedia.org/%'"
+  );
+  let moved = 0;
+  db.transaction(() => {
+    for (const r of RECIPES) {
+      if (!r.image) continue;
+      moved += upd.run(r.image, r.name).changes;
+    }
+  })();
+  if (moved) console.log(`Обложки базовых рецептов переведены на локальные файлы: ${moved}.`);
+}
+
 // ── Идемпотентный досев базового каталога ──
 // Запускается при каждом старте: добавляет недостающие базовые продукты и рецепты
 // (по имени), не трогая существующие записи и пользовательские данные. Так каталог
