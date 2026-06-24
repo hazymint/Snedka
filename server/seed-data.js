@@ -1,6 +1,5 @@
 // Базовый каталог продуктов и рецептов. Загружается в БД при первом запуске.
 // per: '100' = ккал на 100 г/мл, 'pc' = ккал за штуку.
-import crypto from "crypto";
 
 export const INGREDIENTS = [
   ["oats",        "Овсяные хлопья",     "г",    "Бакалея",         366, "100"],
@@ -86,34 +85,9 @@ export const INGREDIENTS = [
 
 export const GROUP_ORDER = ["Овощи", "Фрукты", "Мясо и рыба", "Молочное и яйца", "Бакалея", "Прочее"];
 
-// Обложки блюд раздаются с собственного origin (`/seed-images/...`), а не с
-// commons.wikimedia.org: внешний хост в ряде сетей (РФ, мобильный интернет за DPI)
-// душится/висит, из-за чего сетка рецептов и весь сайт грузятся с трудом. Файлы
-// один раз скачиваются и сжимаются скриптом `scripts/localize-covers.js` и лежат
-// в репозитории (`server/seed-images/`). `COVER_SOURCES` хранит соответствие
-// «локальное имя → исходный файл Wikimedia», чтобы скрипт знал, что скачивать.
-export const WIKIMEDIA_FILE_URL = (file) =>
-  `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=1280`;
-
-const coverSlug = (file) =>
-  file
-    .replace(/\.[a-z0-9]+$/i, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-
-// Детерминированное имя файла обложки (slug + короткий хэш исходного имени, чтобы
-// разные файлы с одинаковым slug не сталкивались).
-export const coverName = (file) =>
-  `${coverSlug(file)}-${crypto.createHash("sha1").update(file).digest("hex").slice(0, 8)}`;
-
-export const COVER_SOURCES = {};
-const img = (file) => {
-  const name = coverName(file);
-  COVER_SOURCES[name] = file;
-  return `/seed-images/${name}.webp`;
-};
+// Обложка блюда: стабильная ссылка на файл Wikimedia Commons (Special:FilePath отдаёт
+// сам файл по имени). Если конкретный файл не найдётся, клиент скрывает картинку.
+const img = (file) => `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file)}?width=800`;
 
 export const RECIPES = [
   { name: "Овсянка с бананом и мёдом", meal: "Завтрак", time: 10, image: img("Banana oatmeal.jpg"),
