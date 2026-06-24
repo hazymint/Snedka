@@ -2,8 +2,10 @@
 //
 // Скачивает исходные файлы с Wikimedia Commons, сжимает их в WebP (обложка ≤1000px
 // и миниатюра ≤400px — те же пресеты, что у пользовательских загрузок) и кладёт в
-// `server/seed-images/`, откуда их раздаёт сервер. После этого клиенты грузят обложки
-// только с собственного origin, без обращений к внешнему (и часто заблокированному) хосту.
+// `client/public/seed-images/`, откуда они едут вместе с фронтендом и раздаются тем же
+// статик-хостом (nginx/Vite), что и `index.html` — без проксирования на Node. После
+// этого клиенты грузят обложки только с собственного origin, без обращений к внешнему
+// (и часто заблокированному) хосту.
 //
 // Запуск (нужен доступ в интернет): `node scripts/localize-covers.js`.
 // Идемпотентно: уже скачанные файлы пропускаются (--force перезаписывает).
@@ -15,7 +17,7 @@ import sharp from "sharp";
 import { COVER_SOURCES, WIKIMEDIA_FILE_URL } from "../seed-data.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const OUT_DIR = path.join(__dirname, "..", "seed-images");
+const OUT_DIR = path.join(__dirname, "..", "..", "client", "public", "seed-images");
 const FORCE = process.argv.includes("--force");
 
 const COVER = { width: 1000, quality: 78 };
