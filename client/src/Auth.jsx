@@ -5,19 +5,19 @@ import ThemeToggle from "./ThemeToggle.jsx";
 
 export default function Auth({ onAuthed }) {
   const [mode, setMode] = useState("login"); // login | register
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const submit = async () => {
+  const submit = async (e) => {
+    e.preventDefault();
     setError("");
     setBusy(true);
     try {
       const payload = mode === "login"
-        ? await api.login({ email, password })
-        : await api.register({ email, password, name });
+        ? await api.login({ username, password })
+        : await api.register({ username, password });
       setToken(payload.token);
       onAuthed(payload);
     } catch (e) {
@@ -42,32 +42,30 @@ export default function Auth({ onAuthed }) {
         <div className="bg-surface rounded-2xl border border-line p-6">
           <div className="flex gap-1 p-1 mb-5 bg-paper rounded-lg">
             {["login", "register"].map((m) => (
-              <button key={m} onClick={() => { setMode(m); setError(""); }}
+              <button key={m} type="button" onClick={() => { setMode(m); setError(""); }}
                 className={`flex-1 py-2 rounded-md text-sm font-medium transition ${mode === m ? "bg-surface shadow-sm text-ink" : "text-muted"}`}>
                 {m === "login" ? "Вход" : "Регистрация"}
               </button>
             ))}
           </div>
 
-          <div className="space-y-3">
-            {mode === "register" && (
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ваше имя"
-                className="w-full px-3 py-2.5 rounded-lg border border-line bg-paper focus:outline-none focus:border-primary" />
-            )}
-            <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" autoComplete="email"
+          <form className="space-y-3" onSubmit={submit}>
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Ник"
+              name="username" autoComplete="username" required minLength={3} maxLength={24}
               className="w-full px-3 py-2.5 rounded-lg border border-line bg-paper focus:outline-none focus:border-primary" />
             <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Пароль"
-              onKeyDown={(e) => e.key === "Enter" && submit()}
+              name="password" autoComplete={mode === "login" ? "current-password" : "new-password"}
+              required minLength={6} maxLength={72}
               className="w-full px-3 py-2.5 rounded-lg border border-line bg-paper focus:outline-none focus:border-primary" />
 
             {error && <p className="text-sm text-danger">{error}</p>}
 
-            <button onClick={submit} disabled={busy}
+            <button type="submit" disabled={busy}
               className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-white font-medium hover:bg-primary-700 transition disabled:opacity-60">
               {busy && <Loader2 size={18} className="animate-spin" />}
               {mode === "login" ? "Войти" : "Создать аккаунт"}
             </button>
-          </div>
+          </form>
         </div>
 
         <p className="text-center text-xs text-muted-soft mt-4">

@@ -182,10 +182,10 @@ function UsersTab({ onFlash }) {
             <li key={u.id} className="px-4 py-3 grid sm:grid-cols-[1fr_auto_auto_auto] gap-3 items-center">
               <div className="min-w-0">
                 <div className="text-sm font-medium flex items-center gap-2">
-                  {u.name}{u.id === data.me.id && <span className="text-xs text-muted-soft">(вы)</span>}
+                  {u.username}{u.id === data.me.id && <span className="text-xs text-muted-soft">(вы)</span>}
                   {u.banned ? <span className="text-xs px-2 py-0.5 rounded-full bg-danger text-white">бан</span> : null}
                 </div>
-                <div className="text-xs text-muted-soft truncate">{u.email} · {u.family || "—"}</div>
+                <div className="text-xs text-muted-soft truncate">{u.family || "—"}</div>
                 <div className="text-[11px] text-muted-soft mt-0.5">
                   рег. {fmtDate(u.created_at)} · рецептов: {u.recipe_count}
                 </div>
@@ -384,7 +384,7 @@ const ACTION_ICON = {
 function metaText(e) {
   const m = e.meta || {};
   if (e.action === "role_change" && m.to) return `${ROLE_LABEL[m.from] || m.from || "?"} → ${ROLE_LABEL[m.to] || m.to}`;
-  if (e.action === "login_fail" && m.email) return m.email;
+  if (e.action === "login_fail" && m.username) return m.username;
   if ((e.action === "recipe_update" || e.action === "recipe_delete" ||
        e.action === "product_update" || e.action === "product_delete") && m.moderated) return "модерация чужого/базового";
   return null;

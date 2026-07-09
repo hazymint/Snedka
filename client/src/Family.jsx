@@ -31,7 +31,7 @@ export default function Family({ me, onUpdate, onFlash }) {
   const leave = async () => {
     setBusy(true); setError("");
     try {
-      const next = await api.newFamily(`Семья ${user.name}`);
+      const next = await api.newFamily(`Семья ${user.username}`);
       onUpdate(next);
       onFlash("Создана новая семья");
     } catch (e) { setError(e.message); } finally { setBusy(false); }
@@ -81,10 +81,9 @@ export default function Family({ me, onUpdate, onFlash }) {
         <ul className="divide-y divide-line-soft">
           {members.map((m) => (
             <li key={m.id} className="flex items-center gap-3 py-2.5">
-              <span className="grid place-items-center w-9 h-9 rounded-full bg-primary/10 text-primary font-medium">{m.name.charAt(0).toUpperCase()}</span>
+              <span className="grid place-items-center w-9 h-9 rounded-full bg-primary/10 text-primary font-medium">{m.username.charAt(0).toUpperCase()}</span>
               <div className="flex-1">
-                <div className="text-sm font-medium">{m.name}{m.id === user.id && " · вы"}</div>
-                <div className="text-xs text-muted-soft">{m.email}</div>
+                <div className="text-sm font-medium">{m.username}{m.id === user.id && " · вы"}</div>
               </div>
               {m.id === family.owner_id && <span className="text-xs px-2 py-0.5 rounded-full bg-accent/15 text-accent-700 border border-accent/40">владелец</span>}
             </li>

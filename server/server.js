@@ -113,6 +113,41 @@ function touchLastSeen(userId) {
   db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(userId);
 }
 
+// ── Защита от подбора пароля и спама регистраций ──
+// Простой троттлинг в памяти процесса: после max попыток в течение windowMs — блок на windowMs.
+function makeLimiter(max, windowMs) {
+  const store = new Map();
+  return {
+    isLocked(key) {
+      const e = store.get(key);
+      return !!(e && e.blockedUntil > Date.now());
+    },
+    hit(key) {
+      const now = Date.now();
+      const e = store.get(key) || { count: 0, first: now, blockedUntil: 0 };
+      if (now - e.first > windowMs) { e.count = 0; e.first = now; e.blockedUntil = 0; }
+      e.count += 1;
+      if (e.count >= max) e.blockedUntil = now + windowMs;
+      store.set(key, e);
+    },
+    clear(key) { store.delete(key); },
+    sweep() {
+      const now = Date.now();
+      for (const [k, e] of store) if (e.blockedUntil < now && now - e.first > windowMs) store.delete(k);
+    },
+  };
+}
+
+const loginFailByUser = makeLimiter(5, 15 * 60 * 1000); // 5 неудач подряд на ник — блок на 15 мин
+const loginFailByIp = makeLimiter(20, 15 * 60 * 1000); // 20 неудач с одного IP (за ним может быть вся семья)
+const registerByIp = makeLimiter(10, 60 * 60 * 1000); // не больше 10 регистраций в час с одного IP
+
+setInterval(() => {
+  loginFailByUser.sweep();
+  loginFailByIp.sweep();
+  registerByIp.sweep();
+}, 10 * 60 * 1000).unref();
+
 // Запись в журнал действий. Имена сохраняем «снимком», чтобы запись пережила
 // переименование/удаление пользователя. meta — произвольный объект (сериализуем в JSON).
 const logStmt = db.prepare(
@@ -123,9 +158,9 @@ function logEvent(action, { actor = null, target = null, meta = null, ip = null 
     logStmt.run(
       action,
       actor?.id ?? null,
-      actor?.name ?? null,
+      actor?.username ?? null,
       target?.id ?? null,
-      target?.name ?? null,
+      target?.name ?? target?.username ?? null,
       meta && Object.keys(meta).length ? JSON.stringify(meta) : null,
       ip ?? null
     );
@@ -141,7 +176,7 @@ function auth(req, res, next) {
   if (!token) return res.status(401).json({ error: "Требуется вход" });
   try {
     const { uid } = jwt.verify(token, SECRET);
-    const user = db.prepare("SELECT id, email, name, family_id, role, banned FROM users WHERE id = ?").get(uid);
+    const user = db.prepare("SELECT id, username, family_id, role, banned FROM users WHERE id = ?").get(uid);
     if (!user) return res.status(401).json({ error: "Пользователь не найден" });
     if (user.banned) return res.status(403).json({ error: "Аккаунт заблокирован" });
     touchLastSeen(user.id);
@@ -185,9 +220,9 @@ function canManageIngredient(user, ing) {
 // ── helpers ──
 function mePayload(user) {
   const family = db.prepare("SELECT id, name, owner_id, invite_code FROM families WHERE id = ?").get(user.family_id);
-  const members = db.prepare("SELECT id, name, email, role FROM users WHERE family_id = ? ORDER BY id").all(user.family_id);
+  const members = db.prepare("SELECT id, username, role FROM users WHERE family_id = ? ORDER BY id").all(user.family_id);
   return {
-    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    user: { id: user.id, username: user.username, role: user.role },
     family: { ...family, isOwner: family.owner_id === user.id },
     members,
   };
@@ -205,7 +240,7 @@ function createFamily(name, ownerId) {
 function loadRecipes(user) {
   const fam = user.family_id;
   const rows = db.prepare(
-    `SELECT r.*, u.name AS author
+    `SELECT r.*, u.username AS author
      FROM recipes r LEFT JOIN users u ON u.id = r.author_id
      WHERE r.is_base = 1 OR r.visibility = 'public' OR r.family_id = ?
      ORDER BY (r.family_id = ?) DESC, r.id DESC`
@@ -247,22 +282,42 @@ function loadRecipes(user) {
 }
 
 // ──────────────────────────  AUTH  ──────────────────────────
+// Ник: 3–24 символа, буквы (латиница/кириллица), цифры, "_ . -". Никаких @, пробелов,
+// html-спецсимволов и т.п. — это же исключает и любые инъекции через это поле.
+const USERNAME_RE = /^[a-zA-Zа-яА-ЯёЁ0-9_.-]{3,24}$/;
+const MAX_PASSWORD_LEN = 72; // bcrypt молча обрезает пароль длиннее 72 байт
+
 app.post("/api/auth/register", (req, res) => {
-  const { email, password, name } = req.body || {};
-  if (!email || !password || !name) return res.status(400).json({ error: "Заполните все поля" });
+  if (registerByIp.isLocked(req.ip))
+    return res.status(429).json({ error: "Слишком много регистраций с этого адреса. Попробуйте позже." });
+  registerByIp.hit(req.ip);
+
+  const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+  const { password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Укажите ник и пароль" });
+  if (!USERNAME_RE.test(username))
+    return res.status(400).json({ error: "Ник: 3–24 символа, только буквы, цифры, «_», «.», «-»" });
   if (password.length < 6) return res.status(400).json({ error: "Пароль минимум 6 символов" });
-  if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email.toLowerCase()))
-    return res.status(409).json({ error: "Email уже зарегистрирован" });
+  if (password.length > MAX_PASSWORD_LEN) return res.status(400).json({ error: `Пароль максимум ${MAX_PASSWORD_LEN} символов` });
+  if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(username))
+    return res.status(409).json({ error: "Такой ник уже занят" });
 
   const firstUser = db.prepare("SELECT COUNT(*) c FROM users").get().c === 0;
   const hash = bcrypt.hashSync(password, 10);
-  const user = db.transaction(() => {
-    const userId = db.prepare("INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)")
-      .run(email.toLowerCase(), hash, name, firstUser ? "admin" : "user").lastInsertRowid;
-    const familyId = createFamily(`Семья ${name}`, userId);
-    db.prepare("UPDATE users SET family_id = ? WHERE id = ?").run(familyId, userId);
-    return db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(userId);
-  })();
+  let user;
+  try {
+    user = db.transaction(() => {
+      const userId = db.prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)")
+        .run(username, hash, firstUser ? "admin" : "user").lastInsertRowid;
+      const familyId = createFamily(`Семья ${username}`, userId);
+      db.prepare("UPDATE users SET family_id = ? WHERE id = ?").run(familyId, userId);
+      return db.prepare("SELECT id, username, family_id, role FROM users WHERE id = ?").get(userId);
+    })();
+  } catch (e) {
+    // Гонка: два запроса с одинаковым ником прошли проверку выше одновременно.
+    if (e.code?.startsWith("SQLITE_CONSTRAINT")) return res.status(409).json({ error: "Такой ник уже занят" });
+    throw e;
+  }
 
   touchLastSeen(user.id);
   logEvent("register", { actor: user, ip: req.ip });
@@ -270,16 +325,26 @@ app.post("/api/auth/register", (req, res) => {
 });
 
 app.post("/api/auth/login", (req, res) => {
-  const { email, password } = req.body || {};
-  const user = db.prepare("SELECT * FROM users WHERE email = ?").get((email || "").toLowerCase());
+  const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
+  const { password } = req.body || {};
+  const userKey = username.toLowerCase();
+
+  if (loginFailByIp.isLocked(req.ip) || (userKey && loginFailByUser.isLocked(userKey)))
+    return res.status(429).json({ error: "Слишком много неудачных попыток входа. Попробуйте позже." });
+
+  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
   if (!user || !bcrypt.compareSync(password || "", user.password_hash)) {
-    logEvent("login_fail", { meta: { email: (email || "").toLowerCase().slice(0, 120) }, ip: req.ip });
-    return res.status(401).json({ error: "Неверный email или пароль" });
+    loginFailByIp.hit(req.ip);
+    if (userKey) loginFailByUser.hit(userKey);
+    logEvent("login_fail", { meta: { username: userKey.slice(0, 120) }, ip: req.ip });
+    return res.status(401).json({ error: "Неверный ник или пароль" });
   }
   if (user.banned) {
     logEvent("login_blocked", { actor: user, ip: req.ip });
     return res.status(403).json({ error: "Аккаунт заблокирован" });
   }
+  loginFailByIp.clear(req.ip);
+  loginFailByUser.clear(userKey);
   touchLastSeen(user.id);
   logEvent("login", { actor: user, ip: req.ip });
   res.json({ token: sign(user), ...mePayload(user) });
@@ -307,17 +372,17 @@ app.post("/api/family/join", auth, (req, res) => {
   const family = db.prepare("SELECT id FROM families WHERE invite_code = ?").get(code);
   if (!family) return res.status(404).json({ error: "Семья с таким кодом не найдена" });
   db.prepare("UPDATE users SET family_id = ? WHERE id = ?").run(family.id, req.user.id);
-  const user = db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(req.user.id);
+  const user = db.prepare("SELECT id, username, family_id, role FROM users WHERE id = ?").get(req.user.id);
   const fam = db.prepare("SELECT name FROM families WHERE id = ?").get(family.id);
   logEvent("family_join", { actor: req.user, target: { id: family.id, name: fam?.name }, ip: req.ip });
   res.json(mePayload(user));
 });
 
 app.post("/api/family/new", auth, (req, res) => {
-  const name = (req.body?.name || `Семья ${req.user.name}`).trim();
+  const name = (req.body?.name || `Семья ${req.user.username}`).trim();
   const familyId = createFamily(name, req.user.id);
   db.prepare("UPDATE users SET family_id = ? WHERE id = ?").run(familyId, req.user.id);
-  const user = db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(req.user.id);
+  const user = db.prepare("SELECT id, username, family_id, role FROM users WHERE id = ?").get(req.user.id);
   logEvent("family_create", { actor: req.user, target: { id: familyId, name }, ip: req.ip });
   res.json(mePayload(user));
 });
@@ -327,7 +392,7 @@ app.patch("/api/family", auth, (req, res) => {
   if (family.owner_id !== req.user.id) return res.status(403).json({ error: "Только владелец может переименовать семью" });
   const name = (req.body?.name || "").trim();
   if (name) db.prepare("UPDATE families SET name = ? WHERE id = ?").run(name, family.id);
-  const user = db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(req.user.id);
+  const user = db.prepare("SELECT id, username, family_id, role FROM users WHERE id = ?").get(req.user.id);
   res.json(mePayload(user));
 });
 
@@ -476,7 +541,7 @@ app.post("/api/recipes/:id/react", auth, (req, res) => {
 // ──────────────────────────  ADMIN  ──────────────────────────
 app.get("/api/admin/users", auth, requireRole("admin", "moderator"), (req, res) => {
   const users = db.prepare(
-    `SELECT u.id, u.name, u.email, u.role, u.banned, u.last_seen, u.created_at,
+    `SELECT u.id, u.username, u.role, u.banned, u.last_seen, u.created_at,
             f.name AS family,
             (SELECT COUNT(*) FROM recipes r WHERE r.author_id = u.id) AS recipe_count
      FROM users u LEFT JOIN families f ON f.id = u.family_id ORDER BY u.id`

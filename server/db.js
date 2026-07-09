@@ -17,9 +17,8 @@ CREATE TABLE IF NOT EXISTS families (
 
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL COLLATE NOCASE,
   password_hash TEXT NOT NULL,
-  name TEXT NOT NULL,
   family_id INTEGER REFERENCES families(id),
   role TEXT DEFAULT 'user',
   banned INTEGER DEFAULT 0,
@@ -106,6 +105,34 @@ if (!has("recipes", "servings")) db.exec("ALTER TABLE recipes ADD COLUMN serving
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
 if (!has("users", "banned")) db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0");
 if (!has("users", "last_seen")) db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT");
+
+// Вход теперь только по нику и паролю — вместо e-mail + отдельного отображаемого имени.
+// На старых БД переносим e-mail в username (под тем же значением можно продолжать
+// входить) и убираем колонку name; на новых установках таблица уже создаётся такой.
+//
+// Собираем новую таблицу ПОД ДРУГИМ ИМЕНЕМ и переименовываем её на место старой (а не
+// наоборот): recipes/recipe_reactions/shopping_items ссылаются на users через FOREIGN KEY,
+// и если переименовать саму users, SQLite перепишет их REFERENCES на новое имя, а после
+// DROP старой таблицы эти ссылки останутся висеть в никуда — INSERT в такие таблицы
+// начнёт падать с "no such table". Переименование же таблицы БЕЗ входящих ссылок безопасно.
+if (has("users", "email") && !has("users", "username")) {
+  db.exec(`
+    CREATE TABLE users_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      family_id INTEGER REFERENCES families(id),
+      role TEXT DEFAULT 'user',
+      banned INTEGER DEFAULT 0,
+      last_seen TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    INSERT INTO users_new (id, username, password_hash, family_id, role, banned, last_seen, created_at)
+      SELECT id, email, password_hash, family_id, role, banned, last_seen, created_at FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+  `);
+}
 
 // Бан по IP убран — оставлен только бан аккаунта. Подчищаем следы старой схемы
 // на уже существующих БД (новые устанавливаются без них).
