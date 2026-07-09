@@ -113,8 +113,12 @@ function touchLastSeen(userId) {
   db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(userId);
 }
 
-// ── Защита от подбора пароля и спама регистраций ──
-// Простой троттлинг в памяти процесса: после max попыток в течение windowMs — блок на windowMs.
+// ── Защита от подбора пароля ──
+// Без опоры на IP: за реверс-прокси req.ip — это адрес самого прокси (если явно не
+// настроен trust proxy), так что бан/лимит по IP либо бесполезен, либо запирает всех
+// пользователей разом. Вместо этого — блокировка по нику (не зависит от прокси и сети
+// атакующего) плюс небольшая задержка ответа на каждую неудачную попытку, которая
+// линейно замедляет автоматический перебор ещё до срабатывания блокировки.
 function makeLimiter(max, windowMs) {
   const store = new Map();
   return {
@@ -129,6 +133,7 @@ function makeLimiter(max, windowMs) {
       e.count += 1;
       if (e.count >= max) e.blockedUntil = now + windowMs;
       store.set(key, e);
+      return e.count;
     },
     clear(key) { store.delete(key); },
     sweep() {
@@ -139,13 +144,10 @@ function makeLimiter(max, windowMs) {
 }
 
 const loginFailByUser = makeLimiter(5, 15 * 60 * 1000); // 5 неудач подряд на ник — блок на 15 мин
-const loginFailByIp = makeLimiter(20, 15 * 60 * 1000); // 20 неудач с одного IP (за ним может быть вся семья)
-const registerByIp = makeLimiter(10, 60 * 60 * 1000); // не больше 10 регистраций в час с одного IP
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 setInterval(() => {
   loginFailByUser.sweep();
-  loginFailByIp.sweep();
-  registerByIp.sweep();
 }, 10 * 60 * 1000).unref();
 
 // Запись в журнал действий. Имена сохраняем «снимком», чтобы запись пережила
@@ -288,10 +290,6 @@ const USERNAME_RE = /^[a-zA-Zа-яА-ЯёЁ0-9_.-]{3,24}$/;
 const MAX_PASSWORD_LEN = 72; // bcrypt молча обрезает пароль длиннее 72 байт
 
 app.post("/api/auth/register", (req, res) => {
-  if (registerByIp.isLocked(req.ip))
-    return res.status(429).json({ error: "Слишком много регистраций с этого адреса. Попробуйте позже." });
-  registerByIp.hit(req.ip);
-
   const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
   const { password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: "Укажите ник и пароль" });
@@ -324,26 +322,26 @@ app.post("/api/auth/register", (req, res) => {
   res.json({ token: sign(user), ...mePayload(user) });
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
   const { password } = req.body || {};
   const userKey = username.toLowerCase();
 
-  if (loginFailByIp.isLocked(req.ip) || (userKey && loginFailByUser.isLocked(userKey)))
-    return res.status(429).json({ error: "Слишком много неудачных попыток входа. Попробуйте позже." });
+  if (userKey && loginFailByUser.isLocked(userKey))
+    return res.status(429).json({ error: "Слишком много неудачных попыток входа на этот ник. Попробуйте позже." });
 
   const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
   if (!user || !bcrypt.compareSync(password || "", user.password_hash)) {
-    loginFailByIp.hit(req.ip);
-    if (userKey) loginFailByUser.hit(userKey);
+    const attempts = userKey ? loginFailByUser.hit(userKey) : 1;
     logEvent("login_fail", { meta: { username: userKey.slice(0, 120) }, ip: req.ip });
+    // Задержка растёт с числом неудач подряд на этот ник — тормозит перебор ещё до блокировки.
+    await sleep(Math.min(attempts * 300, 2000));
     return res.status(401).json({ error: "Неверный ник или пароль" });
   }
   if (user.banned) {
     logEvent("login_blocked", { actor: user, ip: req.ip });
     return res.status(403).json({ error: "Аккаунт заблокирован" });
   }
-  loginFailByIp.clear(req.ip);
   loginFailByUser.clear(userKey);
   touchLastSeen(user.id);
   logEvent("login", { actor: user, ip: req.ip });
