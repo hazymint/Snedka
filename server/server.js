@@ -16,21 +16,12 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, "uploads");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const app = express();
-app.set("trust proxy", true); // чтобы req.ip отражал реальный адрес за реверс-прокси
 // По умолчанию (разработка) CORS открыт; в проде задайте CORS_ORIGIN — список разрешённых
 // источников через запятую, например "https://snedka.app,https://www.snedka.app".
 const corsOrigin = process.env.CORS_ORIGIN;
 app.use(cors(corsOrigin ? { origin: corsOrigin.split(",").map((s) => s.trim()).filter(Boolean) } : {}));
 app.use(express.json());
 app.use("/uploads", express.static(UPLOAD_DIR, { maxAge: "7d" }));
-
-// ── Блокировка по IP (бан по нику = бан по IP) ──
-app.use((req, res, next) => {
-  const ip = req.ip;
-  if (ip && db.prepare("SELECT 1 FROM banned_ips WHERE ip = ?").get(ip))
-    return res.status(403).json({ error: "Доступ заблокирован" });
-  next();
-});
 
 // Файл держим в памяти — sharp перекодирует его перед записью на диск.
 const upload = multer({
@@ -118,11 +109,8 @@ const SECRET = process.env.JWT_SECRET || (() => {
 })();
 const sign = (user) => jwt.sign({ uid: user.id }, SECRET, { expiresIn: "30d" });
 
-function recordIp(userId, ip) {
+function touchLastSeen(userId) {
   db.prepare("UPDATE users SET last_seen = datetime('now') WHERE id = ?").run(userId);
-  if (!ip) return;
-  db.prepare("INSERT OR IGNORE INTO user_ips (user_id, ip) VALUES (?, ?)").run(userId, ip);
-  db.prepare("UPDATE users SET last_ip = ? WHERE id = ?").run(ip, userId);
 }
 
 // Запись в журнал действий. Имена сохраняем «снимком», чтобы запись пережила
@@ -156,7 +144,7 @@ function auth(req, res, next) {
     const user = db.prepare("SELECT id, email, name, family_id, role, banned FROM users WHERE id = ?").get(uid);
     if (!user) return res.status(401).json({ error: "Пользователь не найден" });
     if (user.banned) return res.status(403).json({ error: "Аккаунт заблокирован" });
-    recordIp(user.id, req.ip);
+    touchLastSeen(user.id);
     req.user = user;
     next();
   } catch {
@@ -276,7 +264,7 @@ app.post("/api/auth/register", (req, res) => {
     return db.prepare("SELECT id, email, name, family_id, role FROM users WHERE id = ?").get(userId);
   })();
 
-  recordIp(user.id, req.ip);
+  touchLastSeen(user.id);
   logEvent("register", { actor: user, ip: req.ip });
   res.json({ token: sign(user), ...mePayload(user) });
 });
@@ -292,7 +280,7 @@ app.post("/api/auth/login", (req, res) => {
     logEvent("login_blocked", { actor: user, ip: req.ip });
     return res.status(403).json({ error: "Аккаунт заблокирован" });
   }
-  recordIp(user.id, req.ip);
+  touchLastSeen(user.id);
   logEvent("login", { actor: user, ip: req.ip });
   res.json({ token: sign(user), ...mePayload(user) });
 });
@@ -488,9 +476,8 @@ app.post("/api/recipes/:id/react", auth, (req, res) => {
 // ──────────────────────────  ADMIN  ──────────────────────────
 app.get("/api/admin/users", auth, requireRole("admin", "moderator"), (req, res) => {
   const users = db.prepare(
-    `SELECT u.id, u.name, u.email, u.role, u.banned, u.last_ip, u.last_seen, u.created_at,
+    `SELECT u.id, u.name, u.email, u.role, u.banned, u.last_seen, u.created_at,
             f.name AS family,
-            (SELECT COUNT(*) FROM user_ips ui WHERE ui.user_id = u.id) AS ip_count,
             (SELECT COUNT(*) FROM recipes r WHERE r.author_id = u.id) AS recipe_count
      FROM users u LEFT JOIN families f ON f.id = u.family_id ORDER BY u.id`
   ).all();
@@ -520,7 +507,6 @@ app.get("/api/admin/stats", auth, requireRole("admin", "moderator"), (req, res) 
     baseRecipes: one("SELECT COUNT(*) c FROM recipes WHERE is_base = 1").c,
     ingredients: one("SELECT COUNT(*) c FROM ingredients WHERE is_base = 0").c,
     banned: one("SELECT COUNT(*) c FROM users WHERE banned = 1").c,
-    bannedIps: one("SELECT COUNT(DISTINCT ip) c FROM banned_ips").c,
   };
 
   const active = {
@@ -587,21 +573,7 @@ app.post("/api/admin/ban", auth, requireRole("admin", "moderator"), (req, res) =
   if (!canModerate(req.user, target)) return res.status(403).json({ error: "Недостаточно прав для этого пользователя" });
 
   db.prepare("UPDATE users SET banned = 1 WHERE id = ?").run(target.id);
-  const ips = db.prepare("SELECT ip FROM user_ips WHERE user_id = ?").all(target.id).map((r) => r.ip);
-  if (target.last_ip) ips.push(target.last_ip);
-  const ins = db.prepare("INSERT OR IGNORE INTO banned_ips (ip, user_id) VALUES (?, ?)");
-  // Не блокируем IP, которым пользуются другие активные участники: иначе бан по общему
-  // домашнему IP выбивает всю семью и самого модератора без возможности восстановиться.
-  const sharedWithActive = db.prepare(
-    "SELECT 1 FROM user_ips ui JOIN users u ON u.id = ui.user_id WHERE ui.ip = ? AND u.id != ? AND u.banned = 0 LIMIT 1"
-  );
-  let bannedIpCount = 0;
-  for (const ip of new Set(ips)) {
-    if (!ip || sharedWithActive.get(ip, target.id)) continue;
-    ins.run(ip, target.id);
-    bannedIpCount++;
-  }
-  logEvent("ban", { actor: req.user, target, meta: { ips: bannedIpCount }, ip: req.ip });
+  logEvent("ban", { actor: req.user, target, ip: req.ip });
   res.json({ ok: true });
 });
 
@@ -610,7 +582,6 @@ app.post("/api/admin/unban", auth, requireRole("admin", "moderator"), (req, res)
   if (!target) return res.status(404).json({ error: "Пользователь не найден" });
   if (!canModerate(req.user, target)) return res.status(403).json({ error: "Недостаточно прав" });
   db.prepare("UPDATE users SET banned = 0 WHERE id = ?").run(target.id);
-  db.prepare("DELETE FROM banned_ips WHERE user_id = ?").run(target.id);
   logEvent("unban", { actor: req.user, target, ip: req.ip });
   res.json({ ok: true });
 });

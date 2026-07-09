@@ -23,23 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
   family_id INTEGER REFERENCES families(id),
   role TEXT DEFAULT 'user',
   banned INTEGER DEFAULT 0,
-  last_ip TEXT,
   last_seen TEXT,
   created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS user_ips (
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  ip TEXT NOT NULL,
-  seen_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(user_id, ip)
-);
-
-CREATE TABLE IF NOT EXISTS banned_ips (
-  ip TEXT NOT NULL,
-  user_id INTEGER,
-  banned_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (ip, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -120,27 +105,13 @@ if (!has("recipes", "visibility")) db.exec("ALTER TABLE recipes ADD COLUMN visib
 if (!has("recipes", "servings")) db.exec("ALTER TABLE recipes ADD COLUMN servings INTEGER DEFAULT 1");
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
 if (!has("users", "banned")) db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0");
-if (!has("users", "last_ip")) db.exec("ALTER TABLE users ADD COLUMN last_ip TEXT");
 if (!has("users", "last_seen")) db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT");
 
-// banned_ips: переход со старого ключа (ip) на составной (ip, user_id) — чтобы разбан
-// удалял только записи конкретного пользователя и не оставлял общий IP заблокированным.
-{
-  const pk = db.prepare("PRAGMA table_info(banned_ips)").all().filter((c) => c.pk).map((c) => c.name);
-  if (!(pk.includes("ip") && pk.includes("user_id"))) {
-    db.exec(`
-      ALTER TABLE banned_ips RENAME TO banned_ips_old;
-      CREATE TABLE banned_ips (
-        ip TEXT NOT NULL,
-        user_id INTEGER,
-        banned_at TEXT DEFAULT (datetime('now')),
-        PRIMARY KEY (ip, user_id)
-      );
-      INSERT OR IGNORE INTO banned_ips (ip, user_id, banned_at) SELECT ip, user_id, banned_at FROM banned_ips_old;
-      DROP TABLE banned_ips_old;
-    `);
-  }
-}
+// Бан по IP убран — оставлен только бан аккаунта. Подчищаем следы старой схемы
+// на уже существующих БД (новые устанавливаются без них).
+if (has("users", "last_ip")) db.exec("ALTER TABLE users DROP COLUMN last_ip");
+db.exec("DROP TABLE IF EXISTS banned_ips");
+db.exec("DROP TABLE IF EXISTS user_ips");
 
 // Восстановление обложек базовых рецептов после отката PR #17.
 // PR #17 при старте сервера переписал `image` базовых рецептов с исходных ссылок на
