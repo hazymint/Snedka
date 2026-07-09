@@ -114,40 +114,37 @@ function touchLastSeen(userId) {
 }
 
 // ── Защита от подбора пароля ──
-// Без опоры на IP: за реверс-прокси req.ip — это адрес самого прокси (если явно не
-// настроен trust proxy), так что бан/лимит по IP либо бесполезен, либо запирает всех
-// пользователей разом. Вместо этого — блокировка по нику (не зависит от прокси и сети
-// атакующего) плюс небольшая задержка ответа на каждую неудачную попытку, которая
-// линейно замедляет автоматический перебор ещё до срабатывания блокировки.
-function makeLimiter(max, windowMs) {
+// Без опоры на IP (за реверс-прокси req.ip — это адрес самого прокси, если явно не
+// настроен trust proxy) и без жёсткой блокировки по нику: если запирать вход на N минут
+// после нескольких неудач, любой, кто просто знает чужой ник, может 5 раз отправить
+// неверный пароль и запереть настоящего владельца — это уже DoS на конкретный аккаунт,
+// а не защита. Вместо этого — задержка ответа, растущая с числом неудач подряд на этот
+// ник: владелец аккаунта всегда может войти (просто медленнее во время атаки), а
+// автоматический перебор паролей становится невыгодным по времени.
+function makeFailCounter(windowMs) {
   const store = new Map();
   return {
-    isLocked(key) {
-      const e = store.get(key);
-      return !!(e && e.blockedUntil > Date.now());
-    },
     hit(key) {
       const now = Date.now();
-      const e = store.get(key) || { count: 0, first: now, blockedUntil: 0 };
-      if (now - e.first > windowMs) { e.count = 0; e.first = now; e.blockedUntil = 0; }
+      const e = store.get(key) || { count: 0, first: now };
+      if (now - e.first > windowMs) { e.count = 0; e.first = now; }
       e.count += 1;
-      if (e.count >= max) e.blockedUntil = now + windowMs;
       store.set(key, e);
       return e.count;
     },
     clear(key) { store.delete(key); },
     sweep() {
       const now = Date.now();
-      for (const [k, e] of store) if (e.blockedUntil < now && now - e.first > windowMs) store.delete(k);
+      for (const [k, e] of store) if (now - e.first > windowMs) store.delete(k);
     },
   };
 }
 
-const loginFailByUser = makeLimiter(5, 15 * 60 * 1000); // 5 неудач подряд на ник — блок на 15 мин
+const loginFails = makeFailCounter(15 * 60 * 1000);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 setInterval(() => {
-  loginFailByUser.sweep();
+  loginFails.sweep();
 }, 10 * 60 * 1000).unref();
 
 // Запись в журнал действий. Имена сохраняем «снимком», чтобы запись пережила
@@ -327,22 +324,19 @@ app.post("/api/auth/login", async (req, res) => {
   const { password } = req.body || {};
   const userKey = username.toLowerCase();
 
-  if (userKey && loginFailByUser.isLocked(userKey))
-    return res.status(429).json({ error: "Слишком много неудачных попыток входа на этот ник. Попробуйте позже." });
-
   const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
   if (!user || !bcrypt.compareSync(password || "", user.password_hash)) {
-    const attempts = userKey ? loginFailByUser.hit(userKey) : 1;
+    const attempts = userKey ? loginFails.hit(userKey) : 1;
     logEvent("login_fail", { meta: { username: userKey.slice(0, 120) }, ip: req.ip });
-    // Задержка растёт с числом неудач подряд на этот ник — тормозит перебор ещё до блокировки.
-    await sleep(Math.min(attempts * 300, 2000));
+    // Задержка растёт с числом неудач подряд на этот ник — тормозит перебор, но не запирает вход.
+    await sleep(Math.min(attempts * 400, 4000));
     return res.status(401).json({ error: "Неверный ник или пароль" });
   }
   if (user.banned) {
     logEvent("login_blocked", { actor: user, ip: req.ip });
     return res.status(403).json({ error: "Аккаунт заблокирован" });
   }
-  loginFailByUser.clear(userKey);
+  loginFails.clear(userKey);
   touchLastSeen(user.id);
   logEvent("login", { actor: user, ip: req.ip });
   res.json({ token: sign(user), ...mePayload(user) });
