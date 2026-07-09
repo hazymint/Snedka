@@ -17,29 +17,13 @@ CREATE TABLE IF NOT EXISTS families (
 
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  email TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL COLLATE NOCASE,
   password_hash TEXT NOT NULL,
-  name TEXT NOT NULL,
   family_id INTEGER REFERENCES families(id),
   role TEXT DEFAULT 'user',
   banned INTEGER DEFAULT 0,
-  last_ip TEXT,
   last_seen TEXT,
   created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS user_ips (
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  ip TEXT NOT NULL,
-  seen_at TEXT DEFAULT (datetime('now')),
-  UNIQUE(user_id, ip)
-);
-
-CREATE TABLE IF NOT EXISTS banned_ips (
-  ip TEXT NOT NULL,
-  user_id INTEGER,
-  banned_at TEXT DEFAULT (datetime('now')),
-  PRIMARY KEY (ip, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -120,27 +104,41 @@ if (!has("recipes", "visibility")) db.exec("ALTER TABLE recipes ADD COLUMN visib
 if (!has("recipes", "servings")) db.exec("ALTER TABLE recipes ADD COLUMN servings INTEGER DEFAULT 1");
 if (!has("users", "role")) db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
 if (!has("users", "banned")) db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0");
-if (!has("users", "last_ip")) db.exec("ALTER TABLE users ADD COLUMN last_ip TEXT");
 if (!has("users", "last_seen")) db.exec("ALTER TABLE users ADD COLUMN last_seen TEXT");
 
-// banned_ips: переход со старого ключа (ip) на составной (ip, user_id) — чтобы разбан
-// удалял только записи конкретного пользователя и не оставлял общий IP заблокированным.
-{
-  const pk = db.prepare("PRAGMA table_info(banned_ips)").all().filter((c) => c.pk).map((c) => c.name);
-  if (!(pk.includes("ip") && pk.includes("user_id"))) {
-    db.exec(`
-      ALTER TABLE banned_ips RENAME TO banned_ips_old;
-      CREATE TABLE banned_ips (
-        ip TEXT NOT NULL,
-        user_id INTEGER,
-        banned_at TEXT DEFAULT (datetime('now')),
-        PRIMARY KEY (ip, user_id)
-      );
-      INSERT OR IGNORE INTO banned_ips (ip, user_id, banned_at) SELECT ip, user_id, banned_at FROM banned_ips_old;
-      DROP TABLE banned_ips_old;
-    `);
-  }
+// Вход теперь только по нику и паролю — вместо e-mail + отдельного отображаемого имени.
+// На старых БД переносим e-mail в username (под тем же значением можно продолжать
+// входить) и убираем колонку name; на новых установках таблица уже создаётся такой.
+//
+// Собираем новую таблицу ПОД ДРУГИМ ИМЕНЕМ и переименовываем её на место старой (а не
+// наоборот): recipes/recipe_reactions/shopping_items ссылаются на users через FOREIGN KEY,
+// и если переименовать саму users, SQLite перепишет их REFERENCES на новое имя, а после
+// DROP старой таблицы эти ссылки останутся висеть в никуда — INSERT в такие таблицы
+// начнёт падать с "no such table". Переименование же таблицы БЕЗ входящих ссылок безопасно.
+if (has("users", "email") && !has("users", "username")) {
+  db.exec(`
+    CREATE TABLE users_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      family_id INTEGER REFERENCES families(id),
+      role TEXT DEFAULT 'user',
+      banned INTEGER DEFAULT 0,
+      last_seen TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+    INSERT INTO users_new (id, username, password_hash, family_id, role, banned, last_seen, created_at)
+      SELECT id, email, password_hash, family_id, role, banned, last_seen, created_at FROM users;
+    DROP TABLE users;
+    ALTER TABLE users_new RENAME TO users;
+  `);
 }
+
+// Бан по IP убран — оставлен только бан аккаунта. Подчищаем следы старой схемы
+// на уже существующих БД (новые устанавливаются без них).
+if (has("users", "last_ip")) db.exec("ALTER TABLE users DROP COLUMN last_ip");
+db.exec("DROP TABLE IF EXISTS banned_ips");
+db.exec("DROP TABLE IF EXISTS user_ips");
 
 // Восстановление обложек базовых рецептов после отката PR #17.
 // PR #17 при старте сервера переписал `image` базовых рецептов с исходных ссылок на

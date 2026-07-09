@@ -100,7 +100,7 @@ function Overview() {
         <StatCard label="Пользователей" value={totals.users} hint={`активны за сутки: ${active.day}`} />
         <StatCard label="Семей" value={totals.families} />
         <StatCard label="Рецептов" value={totals.recipes} hint={`+${totals.baseRecipes} базовых`} />
-        <StatCard label="Забанено" value={totals.banned} hint={`IP в бане: ${totals.bannedIps}`} />
+        <StatCard label="Забанено" value={totals.banned} />
       </div>
 
       <div className="grid sm:grid-cols-3 gap-3">
@@ -169,7 +169,7 @@ function UsersTab({ onFlash }) {
   return (
     <div>
       <p className="text-xs text-muted mb-3">
-        Бан по аккаунту блокирует и все известные IP пользователя. Всего: {data.users.length}.
+        Всего: {data.users.length}.
       </p>
       {error && <p className="text-sm text-danger mb-3 flex items-center gap-1.5"><AlertTriangle size={15} /> {error}</p>}
 
@@ -182,12 +182,12 @@ function UsersTab({ onFlash }) {
             <li key={u.id} className="px-4 py-3 grid sm:grid-cols-[1fr_auto_auto_auto] gap-3 items-center">
               <div className="min-w-0">
                 <div className="text-sm font-medium flex items-center gap-2">
-                  {u.name}{u.id === data.me.id && <span className="text-xs text-muted-soft">(вы)</span>}
+                  {u.username}{u.id === data.me.id && <span className="text-xs text-muted-soft">(вы)</span>}
                   {u.banned ? <span className="text-xs px-2 py-0.5 rounded-full bg-danger text-white">бан</span> : null}
                 </div>
-                <div className="text-xs text-muted-soft truncate">{u.email} · {u.family || "—"}</div>
+                <div className="text-xs text-muted-soft truncate">{u.family || "—"}</div>
                 <div className="text-[11px] text-muted-soft mt-0.5">
-                  рег. {fmtDate(u.created_at)} · рецептов: {u.recipe_count} · IP: {u.ip_count}
+                  рег. {fmtDate(u.created_at)} · рецептов: {u.recipe_count}
                 </div>
               </div>
 
@@ -206,7 +206,6 @@ function UsersTab({ onFlash }) {
               </div>
 
               <div className="text-xs text-muted-soft">
-                <div title={u.last_ip || ""} className="font-mono">{u.last_ip || "—"}</div>
                 <div>{u.last_seen ? fmtRelative(u.last_seen) : "не входил"}</div>
               </div>
 
@@ -385,8 +384,7 @@ const ACTION_ICON = {
 function metaText(e) {
   const m = e.meta || {};
   if (e.action === "role_change" && m.to) return `${ROLE_LABEL[m.from] || m.from || "?"} → ${ROLE_LABEL[m.to] || m.to}`;
-  if (e.action === "ban" && m.ips != null) return `заблокировано IP: ${m.ips}`;
-  if (e.action === "login_fail" && m.email) return m.email;
+  if (e.action === "login_fail" && m.username) return m.username;
   if ((e.action === "recipe_update" || e.action === "recipe_delete" ||
        e.action === "product_update" || e.action === "product_delete") && m.moderated) return "модерация чужого/базового";
   return null;
